@@ -3,7 +3,7 @@ const multer = require("multer");
 const fs = require("fs");
 const Groq = require("groq-sdk");
 const cors = require("cors");
-require("dotenv").config(); // Load environment variables
+require("dotenv").config(); 
 
 const app = express();
 const port = 5000;
@@ -14,7 +14,8 @@ const path = require("path");
 
 const groq = new Groq({ apiKey: "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" });
 
-// Simulated user database
+//This will later replace as a actual database that stores both of these components of tokens and saved words
+
 let users = {
   user1: { tokens: 100, savedWords: [] },
 };
@@ -22,7 +23,7 @@ let users = {
 // Blacklist words
 const blacklist = { badword: "*******", spam: "****" };
 
-// Middleware for token check
+// Middleware for token check and fixing the token count for the person
 function checkTokens(req, res, next) {
   const { username, text } = req.body;
   if (!users[username]) return res.status(400).json({ error: "User not found" });
@@ -96,7 +97,6 @@ app.post("/reject-llm-correction", (req, res) => {
 
 app.listen(port, () => console.log(`Server running on port ${port}`));
 
-//File Saving
 app.post("/save-file", (req, res) => {
     const { username, text } = req.body;
   
@@ -111,7 +111,7 @@ app.post("/save-file", (req, res) => {
     // Deduct 5 tokens
     users[username].tokens -= 5;
   
-    // Define the file path
+
     const filePath = path.join(__dirname, "saved_texts", `${username}_text.txt`);
   
     // Ensure directory exists
@@ -119,7 +119,6 @@ app.post("/save-file", (req, res) => {
       fs.mkdirSync("saved_texts");
     }
   
-    // Write the text to a file
     fs.writeFile(filePath, text, (err) => {
       if (err) {
         return res.status(500).json({ error: "Error saving file" });

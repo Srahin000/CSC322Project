@@ -1,7 +1,7 @@
 import { useState } from "react";
 import axios from "axios";
 import DOMPurify from "dompurify"; 
-import { saveAs } from "file-saver"; // Import file-saver
+import { saveAs } from "file-saver"; 
 
 export default function TextCorrectionApp() {
   const [text, setText] = useState("");
@@ -44,10 +44,8 @@ export default function TextCorrectionApp() {
       return;
     }
   
-    // Convert text to Blob format
     const blob = new Blob([removeHTMLTags(correctedText)], { type: "text/plain;charset=utf-8" });
-  
-    // Prompt user for file save location
+
     saveAs(blob, "corrected_text.txt");
   };
   
