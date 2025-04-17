@@ -2,6 +2,7 @@ import { useState } from "react";
 import axios from "axios";
 import DOMPurify from "dompurify"; 
 import { saveAs } from "file-saver"; 
+import { diffWords } from "diff"; // Import diffWords
 
 export default function TextCorrectionApp() {
   const [text, setText] = useState("");
@@ -9,6 +10,7 @@ export default function TextCorrectionApp() {
   const [correctedText, setCorrectedText] = useState(null);
   const [error, setError] = useState(null);
   const [showCorrection, setShowCorrection] = useState(false);
+  const [differences, setDifferences] = useState(""); // Store the highlighted text as HTML
 
   const handleSubmit = async () => {
     try {
@@ -30,9 +32,11 @@ export default function TextCorrectionApp() {
         username: "user1",
         text,
       });
-      setCorrectedText(response.data.correctedText);
+      const corrected = response.data.correctedText;
+      setCorrectedText(corrected);
       setError(null);
       setShowCorrection(true);
+      setDifferences(highlightDifferences(text, corrected)); // Highlight differences!
     } catch (err) {
       setError("LLM correction failed");
     }
@@ -43,16 +47,9 @@ export default function TextCorrectionApp() {
       alert("No text to save!");
       return;
     }
-  
     const blob = new Blob([removeHTMLTags(correctedText)], { type: "text/plain;charset=utf-8" });
-
     saveAs(blob, "corrected_text.txt");
   };
-  
-
-  const removeHTMLTags = (text) => {
-    return text.replace(/<\/?strong>/g, "");
-  }
 
   const handleAcceptCorrection = async () => {
     try {
@@ -86,9 +83,31 @@ export default function TextCorrectionApp() {
     }
   };
 
+  const removeHTMLTags = (text) => {
+    return text.replace(/<\/?strong>/g, "").replace(/<\/?del>/g, "");
+  };
+
+  const highlightDifferences = (original, modified) => {
+    const diff = diffWords(original, modified);
+    let result = "";
+
+    diff.forEach((part) => {
+      if (part.added) {
+        result += `<strong style="color: green;">${part.value}</strong>`; // Highlight added words
+      } else if (part.removed) {
+        result += `<del style="color: red;">${part.value}</del>`; // Strikethrough removed words
+      } else {
+        result += part.value; // Unchanged text
+      }
+    });
+
+    return result;
+  };
+
   return (
     <div className="p-4 max-w-xl mx-auto">
       <h1 className="text-xl font-bold mb-4">Text Correction System</h1>
+
       <textarea
         className="w-full border p-2"
         rows="5"
@@ -96,27 +115,33 @@ export default function TextCorrectionApp() {
         onChange={(e) => setText(e.target.value)}
         placeholder="Enter text..."
       ></textarea>
+
       <p className="mt-2">Available Tokens: {tokens}</p>
       {error && <p className="text-red-500">{error}</p>}
-      <button
-        className="mt-2 bg-blue-500 text-white px-4 py-2"
-        onClick={handleSubmit}
-      >
-        Submit Text
-      </button>
-      <button
-        className="mt-2 ml-2 bg-blue-700 text-white px-4 py-2"
-        onClick={handleLLMCorrection}
-      >
-        LLM Correction
-      </button>
-      {text && (<button
-            className="mt-2 ml-2 bg-purple-500 text-white px-4 py-2"
+
+      <div className="flex flex-wrap gap-2 mt-2">
+        <button
+          className="bg-blue-500 text-white px-4 py-2"
+          onClick={handleSubmit}
+        >
+          Submit Text
+        </button>
+        <button
+          className="bg-blue-700 text-white px-4 py-2"
+          onClick={handleLLMCorrection}
+        >
+          LLM Correction
+        </button>
+        {text && (
+          <button
+            className="bg-purple-500 text-white px-4 py-2"
             onClick={handleSaveToFile}
-            >
+          >
             Save As...
-            </button>
-      )}
+          </button>
+        )}
+      </div>
+
       <input
         type="file"
         className="mt-2"
@@ -131,35 +156,35 @@ export default function TextCorrectionApp() {
           }
         }}
       />
-      {showCorrection && (<div>
-        <button
-            className="mt-2 bg-green-500 text-white px-4 py-2"
+
+      {showCorrection && (
+        <div className="flex gap-2 mt-4">
+          <button
+            className="bg-green-500 text-white px-4 py-2"
             onClick={handleAcceptCorrection}
-        >
+          >
             Accept Correction
-        </button>
-        <button
-            className="mt-2 ml-2 bg-red-500 text-white px-4 py-2"
+          </button>
+          <button
+            className="bg-red-500 text-white px-4 py-2"
             onClick={handleRejectCorrection}
-        >
+          >
             Reject Correction
-        </button>
-      </div>
+          </button>
+        </div>
       )}
-      
+
       {correctedText && (
         <div className="mt-4 p-2 border bg-gray-100">
-            <h2 className="font-semibold">Corrected Text:</h2>
-            <p
-            className="text-lg"
+          <h2 className="font-semibold mb-2">Corrected Text:</h2>
+          <p
+            className="text-lg whitespace-pre-wrap"
             dangerouslySetInnerHTML={{
-                __html: DOMPurify.sanitize(correctedText),
+              __html: DOMPurify.sanitize(differences),
             }}
-            />
+          />
         </div>
-        )}
-
-
+      )}
     </div>
   );
 }

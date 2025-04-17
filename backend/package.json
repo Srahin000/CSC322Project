@@ -13,6 +13,7 @@
   "license": "ISC",
   "dependencies": {
     "cors": "^2.8.5",
+    "debug": "^4.4.0",
     "express": "^4.21.2",
     "fs": "^0.0.1-security",
     "groq-sdk": "^0.15.0",
