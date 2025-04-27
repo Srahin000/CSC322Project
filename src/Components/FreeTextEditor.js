@@ -23,6 +23,19 @@ export default function FreeTextEditor({ onExitFreeMode }) {
   const [differences, setDifferences] = useState("");
   const [cooldownEnd, setCooldownEnd] = useState(null);
   const [cooldownRemaining, setCooldownRemaining] = useState(null); // new
+
+  useEffect(() => {
+    const saved = localStorage.getItem(COOLDOWN_STORAGE_KEY);
+    if (saved) {
+      const savedTime = new Date(saved);
+      if (savedTime > new Date()) {
+        setCooldownEnd(savedTime);
+        setCooldownRemaining(savedTime - new Date());
+      } else {
+        localStorage.removeItem(COOLDOWN_STORAGE_KEY);
+      }
+    }
+  }, []);
   
 
   const handleSubmit = async () => {
@@ -128,6 +141,8 @@ export default function FreeTextEditor({ onExitFreeMode }) {
     return result;
   };
 
+
+
   useEffect(() => {
     const checkSavedCooldown = () => {
       const savedCooldown = localStorage.getItem(COOLDOWN_STORAGE_KEY);
@@ -150,24 +165,26 @@ export default function FreeTextEditor({ onExitFreeMode }) {
   
   
   useEffect(() => {
-    if (!cooldownEnd) return;
-  
-    const interval = setInterval(() => {
-      const now = new Date();
-      const remaining = cooldownEnd - now;
-  
-      if (remaining <= 0) {
-        setCooldownEnd(null);
-        setCooldownRemaining(null);
-        localStorage.removeItem(COOLDOWN_STORAGE_KEY);
-        clearInterval(interval);
-      } else {
-        setCooldownRemaining(remaining);
-      }
-    }, 1000);
-  
-    return () => clearInterval(interval);
-  }, [cooldownEnd]);
+  if (!cooldownEnd) return;
+
+  const interval = setInterval(() => {
+    const now = new Date();
+    const remaining = cooldownEnd - now;
+
+    if (remaining <= 0) {
+      setCooldownEnd(null);
+      setCooldownRemaining(null);
+      localStorage.removeItem(COOLDOWN_STORAGE_KEY);
+      clearInterval(interval);
+      alert("✅ Cooldown is over, you can submit again!");
+    } else {
+      setCooldownRemaining(remaining);
+    }
+  }, 1000);
+
+  return () => clearInterval(interval);
+}, [cooldownEnd]);
+
   
   
 

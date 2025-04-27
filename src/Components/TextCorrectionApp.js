@@ -1,24 +1,159 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import axios from "axios";
 import DOMPurify from "dompurify"; 
 import { saveAs } from "file-saver"; 
-import { diffWords } from "diff"; // Import diffWords
+import { diffWords } from "diff"; 
+import supabase from "../config/supabaseClient"; // Import Supabase client!
+import { useParams } from "react-router-dom"; // 🆕
+import { useNavigate } from "react-router-dom";
+
 
 export default function TextCorrectionApp() {
+  const navigate = useNavigate(); // 🆕
   const [text, setText] = useState("");
-  const [tokens, setTokens] = useState(100);
+  const [tokens, setTokens] = useState(null); // Initially null
   const [correctedText, setCorrectedText] = useState(null);
   const [error, setError] = useState(null);
   const [showCorrection, setShowCorrection] = useState(false);
-  const [differences, setDifferences] = useState(""); // Store the highlighted text as HTML
+  const [differences, setDifferences] = useState(""); 
+  const [userId, setUserId] = useState(null); // Save user ID
+  const { fileId } = useParams(); // 🆕
+  const [title, setTitle] = useState("");
+
+  // Fetch user session + token balance when app loads
+  useEffect(() => {
+    const fetchUserData = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        setError("No active session");
+        return;
+      }
+      setUserId(session.user.id);
+
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('tokens')
+        .eq('id', session.user.id)
+        .single();
+
+      if (error) {
+        setError("Failed to load user tokens.");
+      } else {
+        setTokens(data.tokens);
+      }
+    };
+
+    fetchUserData();
+  }, []);
+
+  useEffect(() => {
+    const fetchUserData = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        setError("No active session");
+        return;
+      }
+      setUserId(session.user.id);
+
+      // Fetch tokens
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('tokens')
+        .eq('id', session.user.id)
+        .single();
+
+      if (error) {
+        setError("Failed to load user tokens.");
+      } else {
+        setTokens(data.tokens);
+      }
+
+      // If editing an existing file
+      if (fileId) {
+        const { data: file, error: fileError } = await supabase
+          .from('texts')
+          .select('title, content')
+          .eq('id', fileId)
+          .single();
+
+        if (fileError) {
+          setError("Failed to load the file.");
+        } else {
+          setTitle(file.title);
+          setText(file.content);
+        }
+      }
+    };
+
+    fetchUserData();
+  }, [fileId]);
+
+  const handleSaveToSupabase = async () => {
+    if (!title) {
+      alert("Please enter a title for your file!");
+      return;
+    }
+  
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) {
+      setError("No active session");
+      return;
+    }
+  
+    try {
+      if (fileId) {
+        // Update existing file
+        await supabase
+          .from('texts')
+          .update({ title, content: text, updated_at: new Date().toISOString() })
+          .eq('id', fileId);
+      } else {
+        // Create new file
+        await supabase
+          .from('texts')
+          .insert([{ user_id: session.user.id, title, content: text }]);
+      }
+      alert("File saved successfully!");
+    } catch (error) {
+      console.error(error);
+      alert("Failed to save file.");
+    }
+  };
+  
 
   const handleSubmit = async () => {
+    const wordCount = text.trim().split(/\s+/).length;
+
+    if (tokens === null) {
+      setError("Loading tokens...");
+      return;
+    }
+
+    if (tokens < wordCount) {
+      setError("Not enough tokens to submit this text!");
+      return;
+    }
+
     try {
+      // Deduct tokens first
+      const { error } = await supabase
+        .from('profiles')
+        .update({ tokens: tokens - wordCount })
+        .eq('id', userId);
+
+      if (error) {
+        setError("Token deduction failed.");
+        return;
+      }
+
+      setTokens(tokens - wordCount); // Update UI
+
+      // Submit the text to backend
       const response = await axios.post("http://localhost:5000/submit", {
-        username: "user1",
+        username: userId,
         text,
       });
-      setTokens(response.data.tokens);
+
       setCorrectedText(response.data.text);
       setError(null);
     } catch (err) {
@@ -26,17 +161,33 @@ export default function TextCorrectionApp() {
     }
   };
 
+  const handlePurchaseTokens = async (amount) => {
+    try {
+      const response = await axios.post("http://localhost:5000/purchase-tokens", {
+        username: userId,
+        tokensToAdd: amount,
+      });
+  
+      setTokens(response.data.tokens); // Update the token balance
+      setError(null);
+      alert(`Successfully purchased ${amount} tokens!`);
+    } catch (err) {
+      setError(err.response?.data?.error || "Purchase failed");
+    }
+  };
+  
+
   const handleLLMCorrection = async () => {
     try {
       const response = await axios.post("http://localhost:5000/llm-correct", {
-        username: "user1",
+        username: userId,
         text,
       });
       const corrected = response.data.correctedText;
       setCorrectedText(corrected);
       setError(null);
       setShowCorrection(true);
-      setDifferences(highlightDifferences(text, corrected)); // Highlight differences!
+      setDifferences(highlightDifferences(text, corrected)); 
     } catch (err) {
       setError("LLM correction failed");
     }
@@ -52,35 +203,16 @@ export default function TextCorrectionApp() {
   };
 
   const handleAcceptCorrection = async () => {
-    try {
-      const response = await axios.post("http://localhost:5000/accept-llm-correction", {
-        username: "user1",
-        acceptedChanges: text.length,
-      });
-      setTokens(response.data.tokens);
-      setText(removeHTMLTags(correctedText));
-      setCorrectedText(null);
-      setError(null);
-      setShowCorrection(false);
-    } catch (err) {
-      setError("Acceptance of correction failed");
-    }
+    setText(removeHTMLTags(correctedText));
+    setCorrectedText(null);
+    setError(null);
+    setShowCorrection(false);
   };
 
   const handleRejectCorrection = async () => {
-    try {
-      const response = await axios.post("http://localhost:5000/reject-llm-correction", {
-        username: "user1",
-        reason: "Spam",
-        superUserApproval: true,
-      });
-      setTokens(response.data.tokens);
-      setCorrectedText(null);
-      setError(null);
-      setShowCorrection(false);
-    } catch (err) {
-      setError("Rejection of correction failed");
-    }
+    setCorrectedText(null);
+    setError(null);
+    setShowCorrection(false);
   };
 
   const removeHTMLTags = (text) => {
@@ -93,11 +225,11 @@ export default function TextCorrectionApp() {
 
     diff.forEach((part) => {
       if (part.added) {
-        result += `<strong style="color: green;">${part.value}</strong>`; // Highlight added words
+        result += `<strong style="color: green;">${part.value}</strong>`;
       } else if (part.removed) {
-        result += `<del style="color: red;">${part.value}</del>`; // Strikethrough removed words
+        result += `<del style="color: red;">${part.value}</del>`;
       } else {
-        result += part.value; // Unchanged text
+        result += part.value;
       }
     });
 
@@ -106,7 +238,13 @@ export default function TextCorrectionApp() {
 
   return (
     <div className="p-4 max-w-xl mx-auto">
-      <h1 className="text-xl font-bold mb-4">Text Correction System</h1>
+      <h1 className="text-xl font-bold mb-4">Paid Text Correction System</h1>
+      <button
+        className="bg-gray-600 text-white px-4 py-2 my-4"
+        onClick={() => navigate("/my-files")}
+      >
+        📂 View My Saved Files
+      </button>
 
       <textarea
         className="w-full border p-2"
@@ -116,7 +254,7 @@ export default function TextCorrectionApp() {
         placeholder="Enter text..."
       ></textarea>
 
-      <p className="mt-2">Available Tokens: {tokens}</p>
+      <p className="mt-2">Available Tokens: {tokens !== null ? tokens : "Loading..."}</p>
       {error && <p className="text-red-500">{error}</p>}
 
       <div className="flex flex-wrap gap-2 mt-2">
@@ -126,12 +264,25 @@ export default function TextCorrectionApp() {
         >
           Submit Text
         </button>
+
         <button
           className="bg-blue-700 text-white px-4 py-2"
           onClick={handleLLMCorrection}
         >
           LLM Correction
         </button>
+        <div className="flex flex-wrap gap-2 mt-4">
+          <h2 className="text-lg font-semibold mb-2">Purchase Tokens</h2>
+          {[10, 50, 100].map((amount) => (
+            <button
+              key={amount}
+              className="bg-green-500 text-white px-4 py-2"
+              onClick={() => handlePurchaseTokens(amount)}
+            >
+              Buy {amount} Tokens
+            </button>
+          ))}
+        </div>
         {text && (
           <button
             className="bg-purple-500 text-white px-4 py-2"
@@ -185,6 +336,21 @@ export default function TextCorrectionApp() {
           />
         </div>
       )}
+
+      <input
+        className="border p-2 mt-2 w-full"
+        placeholder="Enter title here..."
+        value={title}
+        onChange={(e) => setTitle(e.target.value)}
+      />
+
+      <button
+        className="bg-green-600 text-white px-4 py-2 mt-2"
+        onClick={handleSaveToSupabase}
+      >
+        Save to Cloud
+      </button>
+
     </div>
   );
 }

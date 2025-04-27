@@ -7,18 +7,31 @@ export default function Register({ onSwitchToSignIn }) {
   const [error, setError] = useState(null);
 
   const handleRegister = async () => {
-    const { error } = await supabase.auth.signUp({
-      email,
-      password,
-    });
-
-    if (error) {
-      setError(error.message);
-    } else {
-      setError(null);
-      alert('Registration successful! Please check your email to confirm.');
-      onSwitchToSignIn(); // After successful register, switch to login screen
-    }
+    const { data, error } = await supabase.auth.signUp({
+        email,
+        password,
+      });
+    
+      if (error) {
+        setError(error.message);
+        return;
+      }
+    
+      if (data && data.user && data.user.id) {
+        const { error: profileError } = await supabase.from('profiles').insert([
+          { id: data.user.id, email: email, tokens: 100 } // Start with 100 tokens
+        ]);
+    
+        if (profileError) {
+          setError("Failed to create user profile.");
+          return;
+        }
+    
+        alert('Registration successful! Please check your email to confirm.');
+        onSwitchToSignIn();
+      } else {
+        setError("Something went wrong with registration.");
+      }
   };
 
   return (
