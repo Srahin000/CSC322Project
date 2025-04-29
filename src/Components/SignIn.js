@@ -1,21 +1,46 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import supabase from '../config/supabaseClient';
 
 export default function SignIn({ onSwitchToRegister }) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState(null);
+  const navigate = useNavigate();
 
   const handleSignIn = async () => {
-    const { error } = await supabase.auth.signInWithPassword({
+    const { error: signInError } = await supabase.auth.signInWithPassword({
       email,
       password,
     });
-    if (error) {
-      setError(error.message);
+
+    if (signInError) {
+      setError(signInError.message);
+      return;
+    }
+
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) {
+      setError("Failed to fetch user.");
+      return;
+    }
+
+    const { data: profile, error: profileError } = await supabase
+      .from('profiles')
+      .select('role')
+      .eq('id', user.id)
+      .single();
+
+    if (profileError || !profile?.role) {
+      setError("User role not found.");
+      return;
+    }
+
+    // ✅ Navigate based on role
+    if (profile.role === 'super') {
+      navigate('/super-dashboard');
     } else {
-      setError(null);
-      window.location.reload();
+      navigate('/editor');
     }
   };
 
