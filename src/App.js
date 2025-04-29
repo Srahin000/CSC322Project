@@ -1,74 +1,78 @@
 import { useEffect, useState } from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom'; // 🆕
+import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import supabase from './config/supabaseClient';
 import SignIn from './Components/SignIn';
 import Register from './Components/Register';
 import SignOut from './Components/SignOut';
 import TextEditor from './Components/TextCorrectionApp';
-import FreeEditor from './Components/FreeTextEditor'; 
-import MyFiles from './Pages/MyFiles'; // 🆕 import
+import FreeEditor from './Components/FreeTextEditor';
+import MyFiles from './Pages/MyFiles';
+import SuperDashboard from './Pages/SuperDashboard';
 
 export default function App() {
   const [session, setSession] = useState(null);
   const [showRegister, setShowRegister] = useState(false);
   const [freeMode, setFreeMode] = useState(false);
 
+  // Watch for auth state changes
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    const getInitialSession = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
       setSession(session);
-    });
+    };
 
-    const { data: listener } = supabase.auth.onAuthStateChange(
+    getInitialSession();
+
+    const { data: authListener } = supabase.auth.onAuthStateChange(
       (_event, session) => {
         setSession(session);
       }
     );
 
     return () => {
-      listener.subscription.unsubscribe();
+      authListener.subscription.unsubscribe();
     };
   }, []);
 
   return (
     <Router>
       <div className="p-4 max-w-xl mx-auto">
-        {session && <SignOut />} {/* Show SignOut if logged in */}
+        {session && <SignOut />}
 
         <Routes>
-          {/* Free mode (no login needed) */}
+          {/* Free Mode */}
           {freeMode && (
             <Route path="*" element={<FreeEditor onExitFreeMode={() => setFreeMode(false)} />} />
           )}
 
-          {/* Not logged in */}
+          {/* Not Logged In */}
           {!session && !freeMode && (
-            <>
-              <Route
-                path="*"
-                element={
-                  showRegister ? (
-                    <Register onSwitchToSignIn={() => setShowRegister(false)} />
-                  ) : (
-                    <SignIn onSwitchToRegister={() => setShowRegister(true)} />
-                  )
-                }
-              />
-            </>
+            <Route
+              path="*"
+              element={
+                showRegister ? (
+                  <Register onSwitchToSignIn={() => setShowRegister(false)} />
+                ) : (
+                  <SignIn onSwitchToRegister={() => setShowRegister(true)} />
+                )
+              }
+            />
           )}
 
-          {/* Logged in */}
+          {/* Logged In */}
           {session && (
             <>
               <Route path="/editor" element={<TextEditor />} />
               <Route path="/editor/:fileId" element={<TextEditor />} />
               <Route path="/my-files" element={<MyFiles />} />
-              {/* Default route: go to /editor */}
+              <Route path="/super-dashboard" element={<SuperDashboard />} />
+
+              {/* Default redirect to editor */}
               <Route path="*" element={<Navigate to="/editor" />} />
             </>
           )}
         </Routes>
 
-        {/* Only show Try for Free if not logged in */}
         {!session && !freeMode && (
           <div className="mt-4 text-center">
             <p>Want to try the app?</p>

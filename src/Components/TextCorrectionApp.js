@@ -9,7 +9,9 @@ import { useNavigate } from "react-router-dom";
 
 
 export default function TextCorrectionApp() {
+  const [blacklistSuggestion, setBlacklistSuggestion] = useState("");
   const navigate = useNavigate(); // 🆕
+  const [blacklistWords, setBlacklistWords] = useState([]);
   const [text, setText] = useState("");
   const [tokens, setTokens] = useState(null); // Initially null
   const [correctedText, setCorrectedText] = useState(null);
@@ -19,8 +21,96 @@ export default function TextCorrectionApp() {
   const [userId, setUserId] = useState(null); // Save user ID
   const { fileId } = useParams(); // 🆕
   const [title, setTitle] = useState("");
+  const [userRole, setUserRole] = useState("");
 
+
+  useEffect(() => {
+    const fetchRole = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session) {
+        const { data: profile, error } = await supabase
+          .from('profiles')
+          .select('role')
+          .eq('id', session.user.id)
+          .single();
+        if (profile) {
+          setUserRole(profile.role);
+        }
+      }
+    };
+  
+    fetchRole();
+  }, []);
   // Fetch user session + token balance when app loads
+
+  const censorBlacklistedWords = (inputText) => {
+    let censored = inputText;
+  
+    blacklistWords.forEach(word => {
+      const regex = new RegExp(`\\b${word}\\b`, 'gi');
+      const replacement = '*'.repeat(word.length);
+      censored = censored.replace(regex, replacement);
+    });
+  
+    return censored;
+  };
+  const handleBlacklistSuggestion = async () => {
+    if (!blacklistSuggestion.trim()) {
+      alert("Please enter a valid word.");
+      return;
+    }
+  
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) {
+      setError("No active session");
+      return;
+    }
+  
+    try {
+      const { error } = await supabase
+        .from('blacklist_requests') // 🛑 Make sure this matches your table name
+        .insert([{
+          suggested_by: session.user.id,
+          word: blacklistSuggestion.trim().toLowerCase(),
+          status: 'pending',
+        }]);
+  
+      if (error) {
+        console.error(error);
+        alert("Failed to submit word.");
+      } else {
+        alert("Word submitted for review!");
+        setBlacklistSuggestion(""); // Clear input
+      }
+    } catch (err) {
+      console.error(err);
+      alert("Submission failed");
+    }
+  };
+  
+  
+  // New helper function to update text state with censorship
+  const applyBlacklist = () => {
+    let censored = text;
+    let found = false;
+  
+    blacklistWords.forEach(word => {
+      const regex = new RegExp(`\\b${word}\\b`, 'gi');
+      if (regex.test(censored)) {
+        found = true;
+        const replacement = '*'.repeat(word.length);
+        censored = censored.replace(regex, replacement);
+      }
+    });
+  
+    if (found) {
+      alert("Your text contains blacklisted words which were censored.");
+    }
+  
+    setText(censored);
+    return censored;
+  };
+  
   useEffect(() => {
     const fetchUserData = async () => {
       const { data: { session } } = await supabase.auth.getSession();
@@ -45,6 +135,61 @@ export default function TextCorrectionApp() {
 
     fetchUserData();
   }, []);
+
+  useEffect(() => {
+    const fetchUserData = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        setError("No active session");
+        return;
+      }
+      setUserId(session.user.id);
+  
+      // Fetch tokens
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('tokens')
+        .eq('id', session.user.id)
+        .single();
+  
+      if (error) {
+        setError("Failed to load user tokens.");
+      } else {
+        setTokens(data.tokens);
+      }
+  
+      // Fetch blacklist
+      const { data: blacklistData, error: blacklistError } = await supabase
+        .from('blacklist_requests') // ⬅️ replace with your actual table name
+        .select('word')
+        .eq('status', 'approved'); // Only approved words
+  
+      if (blacklistError) {
+        console.error("Error fetching blacklist:", blacklistError);
+      } else {
+        setBlacklistWords(blacklistData.map(item => item.word.toLowerCase()));
+      }
+  
+      // Fetch file if editing
+      if (fileId) {
+        const { data: file, error: fileError } = await supabase
+          .from('texts')
+          .select('title, content')
+          .eq('id', fileId)
+          .single();
+  
+        if (fileError) {
+          setError("Failed to load the file.");
+        } else {
+          setTitle(file.title);
+          setText(file.content);
+        }
+      }
+    };
+  
+    fetchUserData();
+  }, [fileId]);
+  
 
   useEffect(() => {
     const fetchUserData = async () => {
@@ -89,6 +234,8 @@ export default function TextCorrectionApp() {
   }, [fileId]);
 
   const handleSaveToSupabase = async () => {
+    const censored = applyBlacklist();
+  
     if (!title) {
       alert("Please enter a title for your file!");
       return;
@@ -102,16 +249,14 @@ export default function TextCorrectionApp() {
   
     try {
       if (fileId) {
-        // Update existing file
         await supabase
           .from('texts')
-          .update({ title, content: text, updated_at: new Date().toISOString() })
+          .update({ title, content: censored, updated_at: new Date().toISOString() })
           .eq('id', fileId);
       } else {
-        // Create new file
         await supabase
           .from('texts')
-          .insert([{ user_id: session.user.id, title, content: text }]);
+          .insert([{ user_id: session.user.id, title, content: censored }]);
       }
       alert("File saved successfully!");
     } catch (error) {
@@ -122,44 +267,46 @@ export default function TextCorrectionApp() {
   
 
   const handleSubmit = async () => {
-    const wordCount = text.trim().split(/\s+/).length;
-
+    const censored = applyBlacklist();
+  
     if (tokens === null) {
       setError("Loading tokens...");
       return;
     }
-
+  
+    const wordCount = censored.trim().split(/\s+/).length;
+  
     if (tokens < wordCount) {
       setError("Not enough tokens to submit this text!");
       return;
     }
-
+  
     try {
-      // Deduct tokens first
       const { error } = await supabase
         .from('profiles')
         .update({ tokens: tokens - wordCount })
         .eq('id', userId);
-
+  
       if (error) {
         setError("Token deduction failed.");
         return;
       }
-
-      setTokens(tokens - wordCount); // Update UI
-
-      // Submit the text to backend
+  
+      setTokens(tokens - wordCount);
+      setText(censored); // make sure UI shows censored version too
+  
       const response = await axios.post("http://localhost:5000/submit", {
         username: userId,
-        text,
+        text: censored,
       });
-
+  
       setCorrectedText(response.data.text);
       setError(null);
     } catch (err) {
       setError(err.response?.data?.error || "Submission failed");
     }
   };
+  
 
   const handlePurchaseTokens = async (amount) => {
     try {
@@ -178,20 +325,23 @@ export default function TextCorrectionApp() {
   
 
   const handleLLMCorrection = async () => {
+    const censored = applyBlacklist();
+  
     try {
       const response = await axios.post("http://localhost:5000/llm-correct", {
         username: userId,
-        text,
+        text: censored,
       });
       const corrected = response.data.correctedText;
       setCorrectedText(corrected);
       setError(null);
       setShowCorrection(true);
-      setDifferences(highlightDifferences(text, corrected)); 
+      setDifferences(highlightDifferences(censored, corrected)); 
     } catch (err) {
       setError("LLM correction failed");
     }
   };
+  
 
   const handleSaveToFile = () => {
     if (!correctedText) {
@@ -238,7 +388,18 @@ export default function TextCorrectionApp() {
 
   return (
     <div className="p-4 max-w-xl mx-auto">
+
       <h1 className="text-xl font-bold mb-4">Paid Text Correction System</h1>
+
+      {userRole === 'super' && (
+        <button
+          className="bg-yellow-500 text-white px-4 py-2 mb-4"
+          onClick={() => navigate("/super-dashboard")}
+        >
+          🏠 Go Back to Super Dashboard
+        </button>
+      )}
+
       <button
         className="bg-gray-600 text-white px-4 py-2 my-4"
         onClick={() => navigate("/my-files")}
@@ -283,6 +444,8 @@ export default function TextCorrectionApp() {
             </button>
           ))}
         </div>
+        
+
         {text && (
           <button
             className="bg-purple-500 text-white px-4 py-2"
@@ -350,7 +513,22 @@ export default function TextCorrectionApp() {
       >
         Save to Cloud
       </button>
-
+      <div className="mt-6">
+          <h2 className="text-lg font-semibold mb-2">Suggest Blacklist Word</h2>
+          <input
+            className="border p-2 w-full mb-2"
+            type="text"
+            placeholder="Enter a word you want blacklisted"
+            value={blacklistSuggestion}
+            onChange={(e) => setBlacklistSuggestion(e.target.value)}
+          />
+          <button
+            className="bg-red-500 text-white px-4 py-2"
+            onClick={handleBlacklistSuggestion}
+          >
+            Submit Blacklist Word
+          </button>
+        </div>
     </div>
   );
 }
