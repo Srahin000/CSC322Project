@@ -6,6 +6,10 @@ import { diffWords } from "diff";
 import supabase from "../config/supabaseClient"; // Import Supabase client!
 import { useParams } from "react-router-dom"; // 🆕
 import { useNavigate } from "react-router-dom";
+import { FaBars } from "react-icons/fa";
+import SidebarMenu from "./SidebarMenu";
+
+
 
 
 export default function TextCorrectionApp() {
@@ -31,6 +35,15 @@ export default function TextCorrectionApp() {
   const [isSuspended, setIsSuspended] = useState(false);
   const [checkedSuspension, setCheckedSuspension] = useState(false); // ensures we don't prematurely render
   const [textLocked, setTextLocked] = useState(false);
+  const [showSelfCorrection, setShowSelfCorrection] = useState(false);
+  const [originalText, setOriginalText] = useState("");
+  const [correctionMode, setCorrectionMode] = useState('none'); // 'none', 'llm', 'self'
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [isTextAreaDisabled, setIsTextAreaDisabled] = useState(false);
+  const [correctionComplete, setCorrectionComplete] = useState(false);
+  const [selectedWords, setSelectedWords] = useState([]);
+  const [rejectionReason, setRejectionReason] = useState("");
+  const [showRejectionModal, setShowRejectionModal] = useState(false);
 
 
 
@@ -336,43 +349,74 @@ export default function TextCorrectionApp() {
   
 
   const handleLLMCorrection = async () => {
-    const censored = applyBlacklist();
-  
+    setError(null);
+    setCorrectionMode('llm');
+    setIsTextAreaDisabled(true);
+    setCorrectionComplete(false);
     try {
       const response = await axios.post("http://localhost:5000/llm-correct", {
         username: userId,
-        text: censored,
+        text: text,
       });
+
       const corrected = response.data.correctedText;
       setCorrectedText(corrected);
-      setError(null);
+      setTokens(response.data.tokens);
       setShowCorrection(true);
-      setTextLocked(true); // lock editing
-      setDifferences(highlightDifferences(censored, corrected)); 
-    } catch (err) {
-      setError("LLM correction failed");
+      
+      // Calculate differences for highlighting
+      const diff = highlightDifferences(text, removeHTMLTags(corrected));
+      setDifferences(diff);
+    } catch (error) {
+      setError(error.response?.data?.error || "Failed to correct text");
+      setIsTextAreaDisabled(false);
+    }
+  };
+
+  // Add function to handle word selection
+  const handleWordSelection = (word) => {
+    if (selectedWords.includes(word)) {
+      setSelectedWords(selectedWords.filter(w => w !== word));
+    } else {
+      setSelectedWords([...selectedWords, word]);
     }
   };
 
   const handleSelfCorrection = async () => {
-    const censored = applyBlacklist();
-  
+    setOriginalText(text); // Save original text for comparison
+    setShowSelfCorrection(true);
+    setIsTextAreaDisabled(false); // Enable text editing
+    setCorrectionMode('self');
+    setShowCorrection(false); // Hide the LLM correction output
+    setCorrectedText(null); // Clear the corrected text
+  };
+
+  const handleSubmitSelfCorrection = async () => {
+    // Calculate word differences
+    const originalWords = originalText.split(/\s+/).filter(word => word.length > 0);
+    const correctedWords = text.split(/\s+/).filter(word => word.length > 0);
+    const changedWords = correctedWords.filter((word, index) => word !== originalWords[index]);
+
+    if (changedWords.length === 0) {
+      setError("No changes detected. Please make corrections before submitting.");
+      return;
+    }
+
     try {
       const response = await axios.post("http://localhost:5000/self-correct", {
         username: userId,
-        text: censored,
+        correctedWords: changedWords,
       });
-      const corrected = response.data.correctedText;
-      setCorrectedText(corrected);
-      setError(null);
-      setShowCorrection(true);
-      setTextLocked(true); // lock editing
-      setDifferences(highlightDifferences(censored, corrected)); 
-    } catch (err) {
-      setError("Self correction failed");
+
+      setTokens(response.data.tokens);
+      setShowSelfCorrection(false);
+      setCorrectionMode('none');
+      setCorrectionComplete(true);
+      setIsTextAreaDisabled(false); // Keep text area enabled after self-correction
+    } catch (error) {
+      setError(error.response?.data?.error || "Failed to self-correct");
     }
-  }
-  
+  };
 
   const handleSaveToFile = () => {
     if (!correctedText) {
@@ -389,15 +433,37 @@ export default function TextCorrectionApp() {
     setError(null);
     setShowCorrection(false);
     setTextLocked(false);
-
+    setIsTextAreaDisabled(false);
+    setCorrectionComplete(true);
   };
 
   const handleRejectCorrection = async () => {
-    setCorrectedText(null);
-    setError(null);
-    setShowCorrection(false);
-    setTextLocked(false);
+    setShowRejectionModal(true);
+  };
 
+  const handleSubmitRejection = async () => {
+    if (!rejectionReason.trim()) {
+      setError("Please provide a reason for rejection.");
+      return;
+    }
+
+    try {
+      await axios.post("http://localhost:5000/submit-rejection", {
+        user_id: userId,
+        text_id: fileId,
+        original_text: text,
+        llm_output: correctedText,
+        reason: rejectionReason.trim()
+      });
+
+      setCorrectedText(null);
+      setError(null);
+      setShowCorrection(false);
+      setShowRejectionModal(false);
+      setRejectionReason("");
+    } catch (error) {
+      setError(error.response?.data?.error || "Failed to submit rejection reason.");
+    }
   };
 
   const removeHTMLTags = (text) => {
@@ -420,6 +486,43 @@ export default function TextCorrectionApp() {
 
     return result;
   };
+
+  const handleParaphrase = async () => {
+    if (!text.trim()) {
+      setError("Please enter some text to paraphrase.");
+      return;
+    }
+
+    if (tokens < 10) {
+      setError("You need at least 10 tokens to use the paraphrase feature.");
+      return;
+    }
+
+    try {
+      const response = await axios.post("http://localhost:5000/paraphrase", {
+        username: userId,
+        text: text.trim(),
+      });
+
+      setCorrectedText(response.data.paraphrasedText);
+      setDifferences(highlightDifferences(text, response.data.paraphrasedText));
+      setShowCorrection(true);
+      setTokens(response.data.tokens);
+      setError(null);
+    } catch (error) {
+      setError(error.response?.data?.error || "Failed to paraphrase text.");
+    }
+  };
+
+  // Sidebar navigation items
+  const sidebarItems = [
+    { label: "My Files", onClick: () => navigate("/my-files") },
+    { label: "Purchase Tokens", onClick: () => navigate("/purchase-tokens") },
+    { label: "Collaboration Invites", onClick: () => navigate("/collaboration-invites") },
+    { label: "Submit Blacklist Word", onClick: () => navigate("/submit-blacklist") },
+    { label: "Submit Complaint", onClick: () => navigate("/submit-complaint") },
+  ];
+
   if (!checkedSuspension) {
     return <p className="p-4 text-center">Checking user status...</p>;
   }
@@ -432,244 +535,181 @@ export default function TextCorrectionApp() {
   }
 
   return (
-    
-    <div className="p-4 max-w-xl mx-auto">
-
-      <h1 className="text-xl font-bold mb-4">Paid Text Correction System</h1>
-
-      {userRole === 'super' && (
-        <button
-          className="bg-yellow-500 text-white px-4 py-2 mb-4"
-          onClick={() => navigate("/super-dashboard")}
-        >
-          🏠 Go Back to Super Dashboard
-        </button>
-      )}
-
+    <div className="relative flex h-screen w-screen bg-blue-50">
+      <SidebarMenu sidebarOpen={sidebarOpen} setSidebarOpen={setSidebarOpen} />
+      {/* Hamburger icon */}
       <button
-        className="bg-gray-600 text-white px-4 py-2 my-4"
-        onClick={() => navigate("/my-files")}
+        className="fixed top-4 left-4 z-40 bg-gray-900 text-white p-2 rounded shadow-lg focus:outline-none"
+        onClick={() => setSidebarOpen((open) => !open)}
+        aria-label="Open menu"
       >
-        📂 View My Saved Files
+        <FaBars size={24} />
       </button>
-      {pendingComplaint && (
-        <div className="fixed top-0 left-0 w-full h-full bg-black bg-opacity-60 flex items-center justify-center z-50">
-          <div className="bg-white p-6 rounded max-w-md w-full">
-            <h2 className="text-xl font-semibold mb-2">You have a pending complaint</h2>
-            <p className="mb-4 text-red-700"><strong>Reason:</strong> {pendingComplaint.reason}</p>
+      {/* Main content area */}
+      <div className="flex-1 overflow-y-auto p-4">
+        <div className="bg-white rounded-xl shadow p-8 w-full h-full">
+          <h1 className="text-3xl font-extrabold mb-8 text-blue-800">Paid Text Correction System</h1>
+          <input
+            className="border p-3 rounded-lg text-lg mb-6 w-full focus:ring-2 focus:ring-blue-200 focus:border-blue-400"
+            placeholder="Enter title here..."
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+          />
+          <div className="flex flex-col gap-6">
             <textarea
-              className="w-full border p-2 mb-4"
-              rows={4}
-              placeholder="Respond to the complaint..."
-              value={complaintResponse}
-              onChange={(e) => setComplaintResponse(e.target.value)}
-            />
-            <button
-              className="bg-green-600 text-white px-4 py-2"
-              onClick={async () => {
-                const { data: { session } } = await supabase.auth.getSession();
-                if (!session || !pendingComplaint?.id) return;
+              className="border p-4 mr-20 rounded-lg text-lg shadow-sm focus:ring-2 focus:ring-blue-200 focus:border-blue-400 w-full"
+              rows="10"
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              placeholder="Enter text..."
+              disabled={isTextAreaDisabled}
+            ></textarea>
+            <p className="text-lg font-medium text-blue-900">Available Tokens: {tokens !== null ? tokens : "Loading..."}</p>
+            {error && <p className="text-red-500 font-semibold mt-2">{error}</p>}
+            
+            <div className="flex flex-col gap-4">
+              <div className="flex gap-4">
+                <button
+                  className="bg-blue-600 text-white px-6 py-3 rounded-lg text-lg font-semibold shadow hover:bg-blue-700 transition"
+                  onClick={handleLLMCorrection}
+                  disabled={isTextAreaDisabled}
+                >
+                  Submit for LLM Correction
+                </button>
+                <button
+                  className="bg-purple-600 text-white px-6 py-3 rounded-lg text-lg font-semibold shadow hover:bg-purple-700 transition"
+                  onClick={handleParaphrase}
+                  disabled={isTextAreaDisabled}
+                >
+                  Paraphrase Text (10 tokens)
+                </button>
+              </div>
 
-                const { error } = await supabase
-                  .from('complaints')
-                  .update({ response: complaintResponse, status: 'responded' })
-                  .eq('id', pendingComplaint.id);
+              {/* Correction output */}
+              {showCorrection && correctedText && (
+                <div className="p-6 border rounded-xl bg-blue-50 shadow-inner">
+                  <h2 className="text-2xl font-semibold mb-4 text-blue-800">Corrected Text:</h2>
+                  <div
+                    className="prose max-w-none mb-4"
+                    dangerouslySetInnerHTML={{
+                      __html: DOMPurify.sanitize(differences)
+                    }}
+                  />
+                  <div className="flex gap-4 mt-4">
+                    <button
+                      className="bg-blue-600 text-white px-6 py-2 rounded-lg text-lg font-semibold hover:bg-blue-700 transition"
+                      onClick={handleAcceptCorrection}
+                    >
+                      Accept Correction
+                    </button>
+                    <button
+                      className="bg-blue-500 text-white px-6 py-2 rounded-lg text-lg font-semibold hover:bg-blue-600 transition"
+                      onClick={handleRejectCorrection}
+                    >
+                      Reject Correction
+                    </button>
+                    <button
+                      className="bg-blue-400 text-white px-6 py-2 rounded-lg text-lg font-semibold hover:bg-blue-500 transition"
+                      onClick={handleSelfCorrection}
+                    >
+                      Self Correct
+                    </button>
+                  </div>
+                </div>
+              )}
 
-                if (error) {
-                  alert('Failed to submit response');
-                  return;
-                }
+              {/* Rejection Modal */}
+              {showRejectionModal && (
+                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+                  <div className="bg-white rounded-xl p-8 max-w-2xl w-full mx-4">
+                    <h2 className="text-2xl font-bold text-blue-800 mb-4">Rejection Reason</h2>
+                    <textarea
+                      className="w-full p-4 border rounded-lg focus:ring-2 focus:ring-blue-200 focus:border-blue-400 mb-4"
+                      rows="4"
+                      value={rejectionReason}
+                      onChange={(e) => setRejectionReason(e.target.value)}
+                      placeholder="Please explain why you are rejecting this correction..."
+                    />
+                    <div className="flex justify-end gap-4">
+                      <button
+                        onClick={() => setShowRejectionModal(false)}
+                        className="bg-gray-500 text-white px-6 py-3 rounded-lg font-semibold hover:bg-gray-600 transition"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        onClick={handleSubmitRejection}
+                        className="bg-blue-600 text-white px-6 py-3 rounded-lg font-semibold hover:bg-blue-700 transition"
+                      >
+                        Submit Rejection
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
 
-                localStorage.removeItem('pendingComplaint');
-                setPendingComplaint(null);
-                alert('Response submitted');
-              }}
-            >
-              Submit Response
-            </button>
+              {/* Self Correction Interface */}
+              {showSelfCorrection && (
+                <div className="p-6 border rounded-xl bg-blue-50 shadow-inner">
+                  <h2 className="text-2xl font-semibold mb-4 text-blue-800">Self Correction Mode</h2>
+                  <p className="mb-4 text-blue-700">Edit the text above to make your corrections. Click Submit when done.</p>
+                  <div className="flex gap-4">
+                    <button
+                      className="bg-blue-600 text-white px-6 py-2 rounded-lg text-lg font-semibold hover:bg-blue-700 transition"
+                      onClick={handleSubmitSelfCorrection}
+                    >
+                      Submit Corrections
+                    </button>
+                    <button
+                      className="bg-blue-400 text-white px-6 py-2 rounded-lg text-lg font-semibold hover:bg-blue-500 transition"
+                      onClick={() => {
+                        setShowSelfCorrection(false);
+                        setText(originalText); // Restore original text
+                        setIsTextAreaDisabled(true);
+                        setCorrectionMode('none');
+                      }}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Save buttons - only show when not in correction process */}
+              {!showCorrection && !showSelfCorrection && text && (
+                <>
+                  <button
+                    className="bg-blue-600 text-white px-6 py-3 rounded-lg text-lg font-semibold shadow hover:bg-blue-700 transition"
+                    onClick={handleSaveToFile}
+                  >
+                    Save to Device
+                  </button>
+                  <button
+                    className="bg-blue-500 text-white px-6 py-3 rounded-lg text-lg font-semibold shadow hover:bg-blue-600 transition"
+                    onClick={handleSaveToSupabase}
+                  >
+                    Save to Cloud
+                  </button>
+                </>
+              )}
+              <input
+                type="file"
+                className="block text-sm text-blue-600 file:mr-4 file:py-2 file:px-4 file:rounded file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
+                onChange={(e) => {
+                  const file = e.target.files[0];
+                  if (file) {
+                    const reader = new FileReader();
+                    reader.onload = () => {
+                      setText(reader.result);
+                    };
+                    reader.readAsText(file);
+                  }
+                }}
+              />
+            </div>
           </div>
         </div>
-      )}
-
-
-
-      <textarea
-        className="w-full border p-2"
-        rows="5"
-        value={text}
-        onChange={(e) => setText(e.target.value)}
-        placeholder="Enter text..."
-      ></textarea>
-
-      <p className="mt-2">Available Tokens: {tokens !== null ? tokens : "Loading..."}</p>
-      {error && <p className="text-red-500">{error}</p>}
-
-      <div className="flex flex-wrap gap-2 mt-2">
-        <button
-          className="bg-blue-700 text-white px-4 py-2"
-          onClick={handleLLMCorrection}
-        >
-          Submit for LLM Correction
-        </button>
-        <div className="flex flex-wrap gap-2 mt-4">
-          <h2 className="text-lg font-semibold mb-2">Purchase Tokens</h2>
-          {[10, 50, 100].map((amount) => (
-            <button
-              key={amount}
-              className="bg-green-500 text-white px-4 py-2"
-              onClick={() => handlePurchaseTokens(amount)}
-            >
-              Buy {amount} Tokens
-            </button>
-          ))}
-        </div>
-        
-
-        {text && (
-          <button
-            className="bg-purple-500 text-white px-4 py-2"
-            onClick={handleSaveToFile}
-          >
-            Save As...
-          </button>
-        )}
       </div>
-
-      <input
-        type="file"
-        className="mt-2"
-        onChange={(e) => {
-          const file = e.target.files[0];
-          if (file) {
-            const reader = new FileReader();
-            reader.onload = () => {
-              setText(reader.result);
-            };
-            reader.readAsText(file);
-          }
-        }}
-      />
-
-      {showCorrection && (
-        <div className="flex gap-2 mt-4">
-          <button
-            className="bg-green-500 text-white px-4 py-2"
-            onClick={handleAcceptCorrection}
-          >
-            Accept Correction
-          </button>
-          <button
-            className="bg-red-500 text-white px-4 py-2"
-            onClick={handleRejectCorrection}
-          >
-            Reject Correction
-          </button>
-        </div>
-      )}
-
-      {correctedText && (
-        <div className="mt-4 p-2 border bg-gray-100">
-          <h2 className="font-semibold mb-2">Corrected Text:</h2>
-          <p
-            className="text-lg whitespace-pre-wrap"
-            dangerouslySetInnerHTML={{
-              __html: DOMPurify.sanitize(differences),
-            }}
-          />
-        </div>
-      )}
-
-      <input
-        className="border p-2 mt-2 w-full"
-        placeholder="Enter title here..."
-        value={title}
-        onChange={(e) => setTitle(e.target.value)}
-      />
-
-      <button
-        className="bg-green-600 text-white px-4 py-2 mt-2"
-        onClick={handleSaveToSupabase}
-      >
-        Save to Cloud
-      </button>
-      <div className="mt-6">
-          <h2 className="text-lg font-semibold mb-2">Suggest Blacklist Word</h2>
-          <input
-            className="border p-2 w-full mb-2"
-            type="text"
-            placeholder="Enter a word you want blacklisted"
-            value={blacklistSuggestion}
-            onChange={(e) => setBlacklistSuggestion(e.target.value)}
-          />
-          <button
-            className="bg-red-500 text-white px-4 py-2"
-            onClick={handleBlacklistSuggestion}
-          >
-            Submit Blacklist Word
-          </button>
-        </div>
-        <div className="mt-6">
-          <h2 className="text-lg font-semibold mb-2">Submit a Complaint</h2>
-
-          <select
-            className="border p-2 w-full mb-2"
-            value={selectedCollaborator}
-            onChange={(e) => setSelectedCollaborator(e.target.value)}
-          >
-            <option value="">Select a collaborator</option>
-            {collaborators.map((user) => (
-              <option key={user.id} value={user.id}>
-                {user.email}
-              </option>
-            ))}
-          </select>
-
-          <textarea
-            className="border p-2 w-full mb-2"
-            placeholder="Describe the issue..."
-            rows={3}
-            value={complaintText}
-            onChange={(e) => setComplaintText(e.target.value)}
-          />
-
-          <button
-            className="bg-orange-500 text-white px-4 py-2"
-            onClick={async () => {
-              const { data: { session } } = await supabase.auth.getSession();
-              if (!session) {
-                alert("Not logged in.");
-                return;
-              }
-
-              if (!complaintText.trim() || !selectedCollaborator || !fileId) {
-                alert("Please select a collaborator, enter a complaint, and ensure a file is loaded.");
-                return;
-              }
-
-              const { error } = await supabase.from("complaints").insert([
-                {
-                  complainant_id: session.user.id,
-                  complained_id: selectedCollaborator,
-                  text_id: fileId,
-                  reason: complaintText.trim(),
-                  status: "pending",
-                },
-              ]);
-
-              if (error) {
-                alert("Failed to submit complaint.");
-                console.error(error);
-              } else {
-                alert("Complaint submitted!");
-                setComplaintText("");
-                setSelectedCollaborator("");
-              }
-            }}
-          >
-            Submit Complaint
-          </button>
-        </div>
-
     </div>
   );
 }
