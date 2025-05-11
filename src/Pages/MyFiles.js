@@ -2,8 +2,10 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom"; // assuming you're using react-router
 import supabase from "../config/supabaseClient";
 
+
 export default function MyFiles() {
   const [files, setFiles] = useState([]);
+  
   const navigate = useNavigate();
   useEffect(() => {
     const fetchFiles = async () => {

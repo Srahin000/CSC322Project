@@ -41,6 +41,16 @@ export default function SignIn({ onSwitchToRegister }) {
       navigate('/super-dashboard');
     } else {
       navigate('/editor');
+      // Fetch pending complaints against the user
+      const { data: complaints } = await supabase
+      .from('complaints')
+      .select('id, reason')
+      .eq('complained_id', user.id)
+      .eq('status', 'pending');
+
+      if (complaints && complaints.length > 0) {
+      localStorage.setItem('pendingComplaint', JSON.stringify(complaints[0]));
+      }
     }
   };
 

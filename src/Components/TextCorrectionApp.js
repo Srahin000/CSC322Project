@@ -22,25 +22,50 @@ export default function TextCorrectionApp() {
   const { fileId } = useParams(); // 🆕
   const [title, setTitle] = useState("");
   const [userRole, setUserRole] = useState("");
+  const [complaintText, setComplaintText] = useState("");
+  const [collaboratorId, setCollaboratorId] = useState("");
+  const [collaborators, setCollaborators] = useState([]); // List of users tied to this text
+  const [selectedCollaborator, setSelectedCollaborator] = useState(""); // Who to complain about
+  const [pendingComplaint, setPendingComplaint] = useState(null);
+  const [complaintResponse, setComplaintResponse] = useState('');
+  const [isSuspended, setIsSuspended] = useState(false);
+  const [checkedSuspension, setCheckedSuspension] = useState(false); // ensures we don't prematurely render
+  const [textLocked, setTextLocked] = useState(false);
+
+
 
 
   useEffect(() => {
-    const fetchRole = async () => {
+    const checkUserStatus = async () => {
       const { data: { session } } = await supabase.auth.getSession();
-      if (session) {
-        const { data: profile, error } = await supabase
-          .from('profiles')
-          .select('role')
-          .eq('id', session.user.id)
-          .single();
-        if (profile) {
-          setUserRole(profile.role);
-        }
+      if (!session) {
+        navigate('/');
+        return;
       }
+  
+      setUserId(session.user.id);
+  
+      // Get role & suspension status
+      const { data: profile, error } = await supabase
+        .from('profiles')
+        .select('role, suspended, tokens')
+        .eq('id', session.user.id)
+        .single();
+  
+      if (error || !profile) {
+        setError("Failed to load profile.");
+        return;
+      }
+  
+      setUserRole(profile.role);
+      setTokens(profile.tokens);
+      setIsSuspended(profile.suspended);
+      setCheckedSuspension(true);
     };
   
-    fetchRole();
+    checkUserStatus();
   }, []);
+  
   // Fetch user session + token balance when app loads
 
   const censorBlacklistedWords = (inputText) => {
@@ -185,8 +210,35 @@ export default function TextCorrectionApp() {
           setText(file.content);
         }
       }
+      // Fetch collaborators for this file
+        const { data: collabData, error: collabError } = await supabase
+        .from('text_collaborators')
+        .select('user_id, adder_id')
+        .eq('text_id', fileId);
+
+        if (!collabError) {
+        // Collect unique users involved in collaboration
+        const usersInvolved = new Set();
+        collabData.forEach(({ user_id, adder_id }) => {
+          if (user_id) usersInvolved.add(user_id);
+          if (adder_id) usersInvolved.add(adder_id);
+        });
+
+        // Remove current user from the set
+        usersInvolved.delete(session.user.id);
+
+        // Fetch user profiles (optional: names or emails)
+        const { data: userProfiles } = await supabase
+          .from('profiles')
+          .select('id, email')
+          .in('id', [...usersInvolved]);
+
+        setCollaborators(userProfiles || []);
+        }
+
     };
-  
+
+    
     fetchUserData();
   }, [fileId]);
   
@@ -265,47 +317,6 @@ export default function TextCorrectionApp() {
     }
   };
   
-
-  const handleSubmit = async () => {
-    const censored = applyBlacklist();
-  
-    if (tokens === null) {
-      setError("Loading tokens...");
-      return;
-    }
-  
-    const wordCount = censored.trim().split(/\s+/).length;
-  
-    if (tokens < wordCount) {
-      setError("Not enough tokens to submit this text!");
-      return;
-    }
-  
-    try {
-      const { error } = await supabase
-        .from('profiles')
-        .update({ tokens: tokens - wordCount })
-        .eq('id', userId);
-  
-      if (error) {
-        setError("Token deduction failed.");
-        return;
-      }
-  
-      setTokens(tokens - wordCount);
-      setText(censored); // make sure UI shows censored version too
-  
-      const response = await axios.post("http://localhost:5000/submit", {
-        username: userId,
-        text: censored,
-      });
-  
-      setCorrectedText(response.data.text);
-      setError(null);
-    } catch (err) {
-      setError(err.response?.data?.error || "Submission failed");
-    }
-  };
   
 
   const handlePurchaseTokens = async (amount) => {
@@ -336,11 +347,31 @@ export default function TextCorrectionApp() {
       setCorrectedText(corrected);
       setError(null);
       setShowCorrection(true);
+      setTextLocked(true); // lock editing
       setDifferences(highlightDifferences(censored, corrected)); 
     } catch (err) {
       setError("LLM correction failed");
     }
   };
+
+  const handleSelfCorrection = async () => {
+    const censored = applyBlacklist();
+  
+    try {
+      const response = await axios.post("http://localhost:5000/self-correct", {
+        username: userId,
+        text: censored,
+      });
+      const corrected = response.data.correctedText;
+      setCorrectedText(corrected);
+      setError(null);
+      setShowCorrection(true);
+      setTextLocked(true); // lock editing
+      setDifferences(highlightDifferences(censored, corrected)); 
+    } catch (err) {
+      setError("Self correction failed");
+    }
+  }
   
 
   const handleSaveToFile = () => {
@@ -357,12 +388,16 @@ export default function TextCorrectionApp() {
     setCorrectedText(null);
     setError(null);
     setShowCorrection(false);
+    setTextLocked(false);
+
   };
 
   const handleRejectCorrection = async () => {
     setCorrectedText(null);
     setError(null);
     setShowCorrection(false);
+    setTextLocked(false);
+
   };
 
   const removeHTMLTags = (text) => {
@@ -385,8 +420,19 @@ export default function TextCorrectionApp() {
 
     return result;
   };
+  if (!checkedSuspension) {
+    return <p className="p-4 text-center">Checking user status...</p>;
+  }
+  if (isSuspended) {
+    return (
+      <div className="p-6 max-w-xl mx-auto text-center text-red-600 font-semibold">
+        🚫 Your account is currently suspended. Please contact support.
+      </div>
+    );
+  }
 
   return (
+    
     <div className="p-4 max-w-xl mx-auto">
 
       <h1 className="text-xl font-bold mb-4">Paid Text Correction System</h1>
@@ -406,6 +452,46 @@ export default function TextCorrectionApp() {
       >
         📂 View My Saved Files
       </button>
+      {pendingComplaint && (
+        <div className="fixed top-0 left-0 w-full h-full bg-black bg-opacity-60 flex items-center justify-center z-50">
+          <div className="bg-white p-6 rounded max-w-md w-full">
+            <h2 className="text-xl font-semibold mb-2">You have a pending complaint</h2>
+            <p className="mb-4 text-red-700"><strong>Reason:</strong> {pendingComplaint.reason}</p>
+            <textarea
+              className="w-full border p-2 mb-4"
+              rows={4}
+              placeholder="Respond to the complaint..."
+              value={complaintResponse}
+              onChange={(e) => setComplaintResponse(e.target.value)}
+            />
+            <button
+              className="bg-green-600 text-white px-4 py-2"
+              onClick={async () => {
+                const { data: { session } } = await supabase.auth.getSession();
+                if (!session || !pendingComplaint?.id) return;
+
+                const { error } = await supabase
+                  .from('complaints')
+                  .update({ response: complaintResponse, status: 'responded' })
+                  .eq('id', pendingComplaint.id);
+
+                if (error) {
+                  alert('Failed to submit response');
+                  return;
+                }
+
+                localStorage.removeItem('pendingComplaint');
+                setPendingComplaint(null);
+                alert('Response submitted');
+              }}
+            >
+              Submit Response
+            </button>
+          </div>
+        </div>
+      )}
+
+
 
       <textarea
         className="w-full border p-2"
@@ -420,17 +506,10 @@ export default function TextCorrectionApp() {
 
       <div className="flex flex-wrap gap-2 mt-2">
         <button
-          className="bg-blue-500 text-white px-4 py-2"
-          onClick={handleSubmit}
-        >
-          Submit Text
-        </button>
-
-        <button
           className="bg-blue-700 text-white px-4 py-2"
           onClick={handleLLMCorrection}
         >
-          LLM Correction
+          Submit for LLM Correction
         </button>
         <div className="flex flex-wrap gap-2 mt-4">
           <h2 className="text-lg font-semibold mb-2">Purchase Tokens</h2>
@@ -529,6 +608,68 @@ export default function TextCorrectionApp() {
             Submit Blacklist Word
           </button>
         </div>
+        <div className="mt-6">
+          <h2 className="text-lg font-semibold mb-2">Submit a Complaint</h2>
+
+          <select
+            className="border p-2 w-full mb-2"
+            value={selectedCollaborator}
+            onChange={(e) => setSelectedCollaborator(e.target.value)}
+          >
+            <option value="">Select a collaborator</option>
+            {collaborators.map((user) => (
+              <option key={user.id} value={user.id}>
+                {user.email}
+              </option>
+            ))}
+          </select>
+
+          <textarea
+            className="border p-2 w-full mb-2"
+            placeholder="Describe the issue..."
+            rows={3}
+            value={complaintText}
+            onChange={(e) => setComplaintText(e.target.value)}
+          />
+
+          <button
+            className="bg-orange-500 text-white px-4 py-2"
+            onClick={async () => {
+              const { data: { session } } = await supabase.auth.getSession();
+              if (!session) {
+                alert("Not logged in.");
+                return;
+              }
+
+              if (!complaintText.trim() || !selectedCollaborator || !fileId) {
+                alert("Please select a collaborator, enter a complaint, and ensure a file is loaded.");
+                return;
+              }
+
+              const { error } = await supabase.from("complaints").insert([
+                {
+                  complainant_id: session.user.id,
+                  complained_id: selectedCollaborator,
+                  text_id: fileId,
+                  reason: complaintText.trim(),
+                  status: "pending",
+                },
+              ]);
+
+              if (error) {
+                alert("Failed to submit complaint.");
+                console.error(error);
+              } else {
+                alert("Complaint submitted!");
+                setComplaintText("");
+                setSelectedCollaborator("");
+              }
+            }}
+          >
+            Submit Complaint
+          </button>
+        </div>
+
     </div>
   );
 }
