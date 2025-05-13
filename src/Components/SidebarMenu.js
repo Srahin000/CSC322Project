@@ -7,6 +7,7 @@ export default function SidebarMenu({ sidebarOpen, setSidebarOpen }) {
   const navigate = useNavigate();
   const [tokens, setTokens] = useState(null);
   const [role, setRole] = useState(null);
+  const [userEmail, setUserEmail] = useState(null);
 
   useEffect(() => {
     const fetchTokensAndRole = async () => {
@@ -14,12 +15,13 @@ export default function SidebarMenu({ sidebarOpen, setSidebarOpen }) {
       if (!session) return;
       const { data, error } = await supabase
         .from('profiles')
-        .select('tokens, role')
+        .select('tokens, role, email')
         .eq('id', session.user.id)
         .single();
       if (!error && data) {
         setTokens(data.tokens);
         setRole(data.role);
+        setUserEmail(data.email);
       }
     };
     fetchTokensAndRole();
@@ -49,11 +51,15 @@ export default function SidebarMenu({ sidebarOpen, setSidebarOpen }) {
           <span className="font-bold text-lg m-auto">Menu</span>
           <button onClick={() => setSidebarOpen(false)} className="text-white text-2xl">×</button>
         </div>
+        {/* User email display */}
+        <div className="px-4 py-2 border-b border-gray-700 text-gray-300 text-sm text-center truncate">
+          {userEmail || "..."}
+        </div>
         {/* Token count display */}
         <div className="px-4 py-3 border-b border-gray-700 text-blue-300 font-semibold text-center">
           Tokens: {tokens !== null ? tokens : "..."}
         </div>
-        <nav className="flex flex-col gap-2 p-4 overflow-y-auto h-[calc(100vh-8rem)]">
+        <nav className="flex flex-col gap-2 p-4 overflow-y-auto h-[calc(100vh-10rem)]">
           {sidebarItems.map((item) => (
             <button
               key={item.label}
