@@ -313,20 +313,14 @@ export default function TextCorrectionApp() {
     }
   
     try {
-      if (fileId) {
-        await supabase
-          .from('texts')
-          .update({ title, content: censored, updated_at: new Date().toISOString() })
-          .eq('id', fileId);
-      } else {
-        await supabase
-          .from('texts')
-          .insert([{ user_id: session.user.id, title, content: censored }]);
-      }
-      alert("File saved successfully!");
+      const response = await axios.post("http://localhost:5000/save-file", {
+        username: session.user.id,
+        text: censored,
+      });
+      setTokens(response.data.tokens);
+      alert("File saved to cloud! 5 tokens deducted.");
     } catch (error) {
-      console.error(error);
-      alert("Failed to save file.");
+      setError(error.response?.data?.error || "Failed to save file.");
     }
   };
   
