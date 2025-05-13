@@ -41,10 +41,12 @@ export default function SuperDashboard() {
         status,
         text_id,
         response,
+        complainant_id,
+        complained_id,
         complainant:complainant_id (id, email),
         complained:complained_id (id, email),
         texts(title, content)
-      `)
+      `)      
       
         .eq("status", "pending");
 
@@ -131,34 +133,55 @@ export default function SuperDashboard() {
   };
 
   const handleUserAction = async (id, action) => {
-    if (action === "terminate") {
-      await supabase.from("profiles").delete().eq("id", id);
-    } else if (action === "suspend") {
-      await supabase.from("profiles").update({ suspended: true }).eq("id", id);
-    } else if (action === "unsuspend") {
-      await supabase.from("profiles").update({ suspended: false }).eq("id", id);
-    } else if (action === "fine") {
-      // Get current tokens
-      const { data: userData } = await supabase
-        .from("profiles")
-        .select("tokens")
-        .eq("id", id)
-        .single();
-
-      if (userData) {
-        // Deduct 10 tokens
-        await supabase
+    try {
+      if (action === "terminate") {
+        await supabase.from("profiles").delete().eq("id", id);
+      } else if (action === "suspend") {
+        await supabase.from("profiles").update({ suspended: true }).eq("id", id);
+      } else if (action === "unsuspend") {
+        await supabase.from("profiles").update({ suspended: false }).eq("id", id);
+      } else if (action === "fine") {
+        // Get current tokens
+        const { data: userData, error: userError } = await supabase
           .from("profiles")
-          .update({ tokens: Math.max(0, userData.tokens - 10) })
-          .eq("id", id);
+          .select("tokens")
+          .eq("id", id)
+          .single();
+
+        if (userError) {
+          throw new Error("Failed to fetch user data");
+        }
+
+        if (userData) {
+          // Deduct 10 tokens
+          const { error: updateError } = await supabase
+            .from("profiles")
+            .update({ tokens: Math.max(0, userData.tokens - 10) })
+            .eq("id", id);
+
+          if (updateError) {
+            throw new Error("Failed to update tokens");
+          }
+        }
       }
+
+      // Refresh the users list after any action
+      const { data: updatedUsers, error: fetchError } = await supabase
+        .from("profiles")
+        .select("id, email, tokens, suspended, role");
+
+      if (fetchError) {
+        throw new Error("Failed to refresh user list");
+      }
+
+      setUsers(updatedUsers || []);
+      
+      // Show success message
+      alert(`User ${action} action completed successfully`);
+    } catch (error) {
+      console.error("Error handling user action:", error);
+      alert(`Failed to ${action} user: ${error.message}`);
     }
-
-    const { data: updatedUsers } = await supabase
-      .from("profiles")
-      .select("id, email, tokens, suspended, role");
-
-    setUsers(updatedUsers || []);
   };
 
   const handleLlmRejection = async (rejection, action) => {

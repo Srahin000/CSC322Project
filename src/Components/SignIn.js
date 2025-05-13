@@ -36,7 +36,7 @@ export default function SignIn({ onSwitchToRegister }) {
       return;
     }
 
-    // ✅ Navigate based on role
+    // Navigate based on role
     if (profile.role === 'super') {
       navigate('/super-dashboard');
     } else {
