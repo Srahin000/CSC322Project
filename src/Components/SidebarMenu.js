@@ -44,7 +44,7 @@ export default function SidebarMenu({ sidebarOpen, setSidebarOpen }) {
   return (
     <>
       {/* Sidebar */}
-      <div className={`h-full w-56 z-30 bg-gray-900 text-white transition-transform duration-200 ${sidebarOpen ? "translate-x-0" : "-translate-x-full"}`}>
+      <div className={`fixed top-0 left-0 h-screen w-64 z-30 bg-gray-900 text-white transition-transform duration-200 ${sidebarOpen ? "translate-x-0" : "-translate-x-full"}`}>
         <div className="flex items-center justify-between px-4 py-3 border-b border-gray-700">
           <span className="font-bold text-lg m-auto">Menu</span>
           <button onClick={() => setSidebarOpen(false)} className="text-white text-2xl">×</button>
@@ -53,7 +53,7 @@ export default function SidebarMenu({ sidebarOpen, setSidebarOpen }) {
         <div className="px-4 py-3 border-b border-gray-700 text-blue-300 font-semibold text-center">
           Tokens: {tokens !== null ? tokens : "..."}
         </div>
-        <nav className="flex flex-col gap-2 p-4">
+        <nav className="flex flex-col gap-2 p-4 overflow-y-auto h-[calc(100vh-8rem)]">
           {sidebarItems.map((item) => (
             <button
               key={item.label}
