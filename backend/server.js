@@ -178,7 +178,7 @@ app.post("/llm-correct", async (req, res) => {
       messages: [
         {
           role: "user",
-          content: `Correct the following text. For each correction, wrap the corrected word or phrase in <strong> tags. Only correct grammar, punctuation, and spelling. Do not change the meaning or structure of the text. If no change is needed, just add a " " at the end of the text. Here's the text to correct:\n${text}`,
+          content: `You are a helpful assistant that corrects the grammar, punctuation, and spelling of the following text. Just return the corrected text, no other text or comments:\n${text}`,
         },
       ],
       model: "llama-3.3-70b-versatile",

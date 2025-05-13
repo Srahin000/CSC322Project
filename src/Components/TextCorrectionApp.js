@@ -514,6 +514,23 @@ export default function TextCorrectionApp() {
     }
   };
 
+  const handleTextChange = (e) => {
+    const newText = e.target.value;
+    // Only censor if the last character is a space
+    if (newText.endsWith(' ')) {
+      const censored = censorBlacklistedWords(newText);
+      setText(censored);
+    } else {
+      setText(newText);
+    }
+  };
+
+  const handleTextBlur = () => {
+    // Censor when leaving the textarea
+    const censored = censorBlacklistedWords(text);
+    setText(censored);
+  };
+
   // Sidebar navigation items
   const sidebarItems = [
     { label: "My Files", onClick: () => navigate("/my-files") },
@@ -560,7 +577,8 @@ export default function TextCorrectionApp() {
               className="border p-4 mr-20 rounded-lg text-lg shadow-sm focus:ring-2 focus:ring-blue-200 focus:border-blue-400 w-full"
               rows="10"
               value={text}
-              onChange={(e) => setText(e.target.value)}
+              onChange={handleTextChange}
+              onBlur={handleTextBlur}
               placeholder="Enter text..."
               disabled={isTextAreaDisabled}
             ></textarea>
