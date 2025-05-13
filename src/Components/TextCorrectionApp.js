@@ -419,12 +419,12 @@ export default function TextCorrectionApp() {
   };
 
   const handleSaveToFile = () => {
-    if (!correctedText) {
+    if (!text) {
       alert("No text to save!");
       return;
     }
-    const blob = new Blob([removeHTMLTags(correctedText)], { type: "text/plain;charset=utf-8" });
-    saveAs(blob, "corrected_text.txt");
+    const blob = new Blob([text], { type: "text/plain;charset=utf-8" });
+    saveAs(blob, "text.txt");
   };
 
   const handleAcceptCorrection = async () => {
