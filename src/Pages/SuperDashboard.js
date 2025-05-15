@@ -1,9 +1,13 @@
+// Admin dashboard for managing complaints, blacklist requests, and users
+// Provides tools to resolve issues and moderate platform content
+
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import supabase from "../config/supabaseClient";
 import SidebarMenu from "../Components/SidebarMenu";
 
 export default function SuperDashboard() {
+  // State for storing different types of admin data
   const [complaints, setComplaints] = useState([]);
   const [blacklistRequests, setBlacklistRequests] = useState([]);
   const [users, setUsers] = useState([]);
@@ -11,8 +15,10 @@ export default function SuperDashboard() {
   const navigate = useNavigate();
   const [sidebarOpen, setSidebarOpen] = useState(true);
 
+  // Fetch all admin data on component mount
   useEffect(() => {
     const fetchData = async () => {
+      // Check user authentication and superuser status
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) {
         alert("Not logged in!");
@@ -20,6 +26,7 @@ export default function SuperDashboard() {
         return;
       }
 
+      // Verify user has superuser role
       const { data: userProfile } = await supabase
         .from("profiles")
         .select("role")
@@ -32,7 +39,7 @@ export default function SuperDashboard() {
         return;
       }
 
-      // Fetch complaints + their text
+      // Fetch pending complaints with related data
       const { data: complaintsData } = await supabase
       .from("complaints")
       .select(`
@@ -47,12 +54,11 @@ export default function SuperDashboard() {
         complained:complained_id (id, email),
         texts(title, content)
       `)      
-      
         .eq("status", "pending");
 
       setComplaints(complaintsData || []);
 
-      // Fetch blacklist suggestions
+      // Fetch pending blacklist requests
       const { data: blacklistData } = await supabase
         .from("blacklist_requests")
         .select("*")
@@ -60,14 +66,14 @@ export default function SuperDashboard() {
 
       setBlacklistRequests(blacklistData || []);
 
-      // Fetch all users
+      // Fetch all user profiles
       const { data: usersData } = await supabase
         .from("profiles")
         .select("id, email, tokens, suspended, role");
 
       setUsers(usersData || []);
 
-      // Fetch LLM rejections
+      // Fetch pending LLM rejections with user info
       const { data: rejectionsData } = await supabase
         .from("llm_rejections")
         .select(`
@@ -89,20 +95,23 @@ export default function SuperDashboard() {
     fetchData();
   }, []);
 
+  // Handle complaint resolution (fine or dismiss)
   const handleResolveComplaint = async (complaint, action) => {
     const statusUpdate = action === "fine" ? "resolved" : "dismissed";
 
+    // Update complaint status
     await supabase
       .from("complaints")
       .update({ status: statusUpdate })
       .eq("id", complaint.id);
 
-    // Set complaint to false for the complained user
+    // Clear complaint flag for complained user
     await supabase
       .from("profiles")
       .update({ complaint: false })
       .eq("id", complaint.complained_id);
 
+    // Apply token penalties based on action
     if (action === "fine") {
       // Get current tokens
       const { data: userData } = await supabase
@@ -135,20 +144,25 @@ export default function SuperDashboard() {
       }
     }
 
+    // Remove resolved complaint from local state
     setComplaints(prev => prev.filter(c => c.id !== complaint.id));
   };
 
+  // Approve or reject blacklist requests
   const handleBlacklistDecision = async (id, decision) => {
     await supabase
       .from("blacklist_requests")
       .update({ status: decision })
       .eq("id", id);
 
+    // Remove processed request from local state
     setBlacklistRequests(prev => prev.filter(b => b.id !== id));
   };
 
+  // Handle various user management actions
   const handleUserAction = async (id, action) => {
     try {
+      // Execute different actions based on parameter
       if (action === "terminate") {
         await supabase.from("profiles").delete().eq("id", id);
       } else if (action === "suspend") {
@@ -180,7 +194,7 @@ export default function SuperDashboard() {
         }
       }
 
-      // Refresh the users list after any action
+      // Refresh user list after action
       const { data: updatedUsers, error: fetchError } = await supabase
         .from("profiles")
         .select("id, email, tokens, suspended, role");
@@ -188,7 +202,6 @@ export default function SuperDashboard() {
       if (fetchError) {
         throw new Error("Failed to refresh user list");
       }
-
       setUsers(updatedUsers || []);
       
       // Show success message
@@ -199,12 +212,13 @@ export default function SuperDashboard() {
     }
   };
 
+  // Handle LLM rejection decisions
   const handleLlmRejection = async (rejection, action) => {
     const penalty = action === "approve" ? 1 : 5;
     const status = action === "approve" ? "approved" : "rejected";
 
     try {
-      // Update rejection status
+      // Update rejection status and penalty
       const { error: rejectionError } = await supabase
         .from("llm_rejections")
         .update({
@@ -214,9 +228,8 @@ export default function SuperDashboard() {
         })
         .eq("id", rejection.id);
 
-      if (rejectionError) throw rejectionError;
-
-      // Deduct tokens from user
+        if (rejectionError) throw rejectionError;
+      // Apply token penalty to user
       const { data: userData } = await supabase
         .from("profiles")
         .select("tokens")
@@ -232,7 +245,7 @@ export default function SuperDashboard() {
         if (updateError) throw updateError;
       }
 
-      // Update local state
+      // Remove processed rejection from local state
       setLlmRejections(prev => prev.filter(r => r.id !== rejection.id));
     } catch (error) {
       console.error("Error handling LLM rejection:", error);
@@ -248,7 +261,7 @@ export default function SuperDashboard() {
           <div className="bg-white rounded-xl shadow p-8">
             <h1 className="text-3xl font-extrabold mb-8 text-blue-800 text-center">SuperUser Dashboard</h1>
 
-            {/* LLM Rejections */}
+            {/* LLM Rejections Section */}
             <section className="mb-10">
               <h2 className="text-2xl font-semibold mb-4 text-blue-800">Pending LLM Rejections</h2>
               {llmRejections.length === 0 ? (
@@ -256,6 +269,7 @@ export default function SuperDashboard() {
               ) : (
                 llmRejections.map((rejection) => (
                   <div key={rejection.id} className="border border-blue-100 p-6 mb-4 rounded-xl shadow-sm bg-blue-50">
+                    {/* Rejection details and action buttons */}
                     <p><strong>From:</strong> {rejection.profiles?.email}</p>
                     <p><strong>Original Text:</strong> <em className="text-blue-700">{rejection.original_text}</em></p>
                     <p><strong>LLM Output:</strong> <em className="text-blue-700">{rejection.llm_output}</em></p>
@@ -280,7 +294,7 @@ export default function SuperDashboard() {
               )}
             </section>
 
-            {/* Complaints */}
+            {/* Complaints Section */}
             <section className="mb-10">
               <h2 className="text-2xl font-semibold mb-4 text-blue-800">Pending Complaints</h2>
               {complaints.length === 0 ? (
@@ -288,6 +302,7 @@ export default function SuperDashboard() {
               ) : (
                 complaints.map((complaint) => (
                   <div key={complaint.id} className="border border-blue-100 p-6 mb-4 rounded-xl shadow-sm bg-blue-50">
+                    {/* Complaint details and resolution buttons */}
                     <p><strong>From:</strong> {complaint.complainant?.email}</p>
                     <p><strong>Against:</strong> {complaint.complained?.email}</p>
                     <p><strong>Reason:</strong> {complaint.reason}</p>
@@ -303,7 +318,7 @@ export default function SuperDashboard() {
               )}
             </section>
 
-            {/* Blacklist */}
+            {/* Blacklist Requests Section */}
             <section className="mb-10">
               <h2 className="text-2xl font-semibold mb-4 text-blue-800">Pending Blacklist Requests</h2>
               {blacklistRequests.length === 0 ? (
@@ -311,6 +326,7 @@ export default function SuperDashboard() {
               ) : (
                 blacklistRequests.map((request) => (
                   <div key={request.id} className="border border-blue-100 p-6 mb-4 rounded-xl shadow-sm bg-blue-50">
+                    {/* Blacklist word and decision buttons */}
                     <p><strong>Word:</strong> {request.word}</p>
                     <div className="flex gap-2 mt-2">
                       <button className="bg-green-600 text-white px-4 py-2 rounded-lg font-semibold hover:bg-green-700 transition" onClick={() => handleBlacklistDecision(request.id, "approved")}>Approve</button>
@@ -321,7 +337,7 @@ export default function SuperDashboard() {
               )}
             </section>
 
-            {/* Users */}
+            {/* User Management Section */}
             <section>
               <h2 className="text-xl font-semibold mb-4">Manage Users</h2>
               {users.length === 0 ? (
@@ -329,6 +345,7 @@ export default function SuperDashboard() {
               ) : (
                 users.map((user) => (
                   <div key={user.id} className="border p-4 mb-4">
+                    {/* User info and management buttons */}
                     <p><strong>Email:</strong> {user.email}</p>
                     <p><strong>Tokens:</strong> {user.tokens}</p>
                     <p><strong>Suspended:</strong> {user.suspended ? "Yes" : "No"}</p>

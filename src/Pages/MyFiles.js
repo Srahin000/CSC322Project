@@ -1,3 +1,6 @@
+// Displays all text documents owned by or shared with the user
+// Allows opening files and managing collaborators for each document
+
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import supabase from "../config/supabaseClient";
@@ -14,18 +17,19 @@ export default function MyFiles() {
 
   useEffect(() => {
     const fetchFiles = async () => {
+      // Get current user session
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) {
         return;
       }
     
-      // Fetch owned files
+      // Fetch files owned by the user
       const { data: ownedFiles, error: ownedError } = await supabase
         .from('texts')
         .select('id, title, created_at')
         .eq('user_id', session.user.id);
     
-      // Fetch collaborations
+      // Fetch files where user is a collaborator
       const { data: collaborationEntries, error: collabError } = await supabase
         .from('text_collaborators')
         .select('text_id')
@@ -36,6 +40,7 @@ export default function MyFiles() {
       if (collaborationEntries?.length) {
         const textIds = collaborationEntries.map(entry => entry.text_id);
     
+        // Get details of collaborated files
         const { data: texts, error: textError } = await supabase
           .from('texts')
           .select('id, title, created_at')
@@ -47,6 +52,7 @@ export default function MyFiles() {
       if (ownedError || collabError) {
         console.error(ownedError || collabError);
       } else {
+        // Combine owned and collaborated files
         setFiles([...ownedFiles, ...collaboratorFiles]);
       }
     };
@@ -54,10 +60,12 @@ export default function MyFiles() {
     fetchFiles();
   }, []);
 
+  // Navigate to editor with selected file
   const handleOpenFile = (id) => {
     navigate(`/editor/${id}`);
   };
 
+  // Open collaborator modal for specific file
   const handleAddCollaborator = (fileId) => {
     setSelectedFileId(fileId);
     setShowCollaboratorModal(true);
@@ -103,6 +111,7 @@ export default function MyFiles() {
               </div>
             ))}
           </div>
+          {/* Modal for managing collaborators */}
           {showCollaboratorModal && (
             <AddCollaborator
               fileId={selectedFileId}

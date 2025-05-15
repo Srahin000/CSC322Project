@@ -1,18 +1,22 @@
+// Allows users to submit complaints about collaborators on shared documents
+// Provides dropdowns to select problematic text and collaborator
+
 import SidebarMenu from "../Components/SidebarMenu";
 import { useState, useEffect } from "react";
 import supabase from "../config/supabaseClient";
 import { useParams } from "react-router-dom";
 
 export default function SubmitComplaint() {
-  const [texts, setTexts] = useState([]); // All texts user is a collaborator on
+  const [texts, setTexts] = useState([]); // All texts user can complain about
   const [selectedTextId, setSelectedTextId] = useState("");
-  const [collaborators, setCollaborators] = useState([]); // Collaborators for selected text
+  const [collaborators, setCollaborators] = useState([]); // Potential complaint targets
   const [selectedCollaborator, setSelectedCollaborator] = useState("");
   const [complaintText, setComplaintText] = useState("");
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
+  // Fetch all texts user has access to (owned or collaborated)
   useEffect(() => {
     const fetchTexts = async () => {
       const { data: { session } } = await supabase.auth.getSession();
@@ -31,8 +35,8 @@ export default function SubmitComplaint() {
         .eq('user_id', session.user.id);
   
       const textIds = (collabData || []).map(c => c.text_id);
-  
       let collaboratedTexts = [];
+      
       if (textIds.length) {
         const { data: textsData } = await supabase
           .from('texts')
@@ -42,28 +46,33 @@ export default function SubmitComplaint() {
       }
   
       const allTexts = [...(ownedTexts || []), ...collaboratedTexts];
-  
+      
       setTexts(allTexts);
     };
   
     fetchTexts();
   }, []);
   
+  // Fetch collaborators when text is selected
   useEffect(() => {
-    // When a text is selected, fetch collaborators for that text
     const fetchCollaborators = async () => {
       if (!selectedTextId) {
         setCollaborators([]);
         setSelectedCollaborator("");
         return;
       }
+      
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) return;
+      
+      // Get all collaborators except current user
       const { data: collabData } = await supabase
         .from('text_collaborators')
         .select('user_id')
         .eq('text_id', parseInt(selectedTextId));
+        
       const userIds = (collabData || []).map(c => c.user_id).filter(id => id !== session.user.id);
+      
       if (userIds.length) {
         const { data: userProfiles } = await supabase
           .from('profiles')
@@ -78,9 +87,12 @@ export default function SubmitComplaint() {
     fetchCollaborators();
   }, [selectedTextId]);
 
+  // Submit complaint to database
   const handleSubmitComplaint = async () => {
     setError(null);
     setSuccess(null);
+    
+    // Validate inputs
     const { data: { session } } = await supabase.auth.getSession();
     if (!session) {
       setError("Not logged in.");
@@ -92,16 +104,14 @@ export default function SubmitComplaint() {
     }
 
     try {
-      // Insert the complaint
-      const { error: complaintError } = await supabase.from("complaints").insert([
-        {
-          complainant_id: session.user.id,
-          complained_id: selectedCollaborator,
-          text_id: selectedTextId,
-          reason: complaintText.trim(),
-          status: "pending",
-        },
-      ]);
+      // Create complaint record
+      const { error: complaintError } = await supabase.from("complaints").insert([{
+        complainant_id: session.user.id,
+        complained_id: selectedCollaborator,
+        text_id: selectedTextId,
+        reason: complaintText.trim(),
+        status: "pending",
+      }]);
 
       if (complaintError) throw complaintError;
 
@@ -111,7 +121,7 @@ export default function SubmitComplaint() {
         .update({ complaint: true })
         .eq('id', selectedCollaborator);
 
-      if (profileError) throw profileError;
+        if (profileError) throw profileError;
 
       setSuccess("Complaint submitted!");
       setComplaintText("");
@@ -129,6 +139,7 @@ export default function SubmitComplaint() {
       <div className="flex-1 p-6 transition-all duration-200 w-full">
         <div className="bg-white rounded-xl shadow p-8 w-full h-full">
           <h1 className="text-2xl font-extrabold mb-8 text-blue-800">Submit a Complaint</h1>
+          
           {/* Text selection dropdown */}
           <select
             className="border p-3 rounded-lg text-lg mb-4 w-full focus:ring-2 focus:ring-blue-200 focus:border-blue-400"
@@ -140,7 +151,8 @@ export default function SubmitComplaint() {
               <option key={text.id} value={text.id}>{text.title}</option>
             ))}
           </select>
-          {/* Collaborator selection dropdown */}
+          
+          {/* Collaborator selection (only shows when text is selected) */}
           {selectedTextId && (
             <select
               className="border p-3 rounded-lg text-lg mb-4 w-full focus:ring-2 focus:ring-blue-200 focus:border-blue-400"
@@ -153,6 +165,8 @@ export default function SubmitComplaint() {
               ))}
             </select>
           )}
+          
+          {/* Complaint details textarea */}
           <textarea
             className="border p-3 rounded-lg text-lg mb-4 w-full focus:ring-2 focus:ring-blue-200 focus:border-blue-400"
             placeholder="Describe the issue..."
@@ -160,6 +174,7 @@ export default function SubmitComplaint() {
             value={complaintText}
             onChange={e => setComplaintText(e.target.value)}
           />
+          
           <button
             className="bg-blue-600 text-white px-6 py-3 mb-4 rounded-lg text-lg font-semibold shadow hover:bg-blue-700 transition"
             onClick={handleSubmitComplaint}
@@ -167,10 +182,12 @@ export default function SubmitComplaint() {
           >
             Submit Complaint
           </button>
+          
+          {/* Status messages */}
           {error && <p className="text-red-500 mb-2">{error}</p>}
           {success && <p className="text-green-600 mb-2">{success}</p>}
         </div>
       </div>
     </div>
   );
-} 
+}

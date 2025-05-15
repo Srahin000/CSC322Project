@@ -1,3 +1,6 @@
+// Enables users to suggest words for the content blacklist
+// Submits words for admin review before being added to the system
+
 import SidebarMenu from "../Components/SidebarMenu";
 import { useState } from "react";
 import supabase from "../config/supabaseClient";
@@ -8,6 +11,7 @@ export default function SubmitBlacklist() {
   const [success, setSuccess] = useState(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
+  // Handle submission of blacklist word
   const handleBlacklistSuggestion = async () => {
     if (!blacklistSuggestion.trim()) {
       setError("Please enter a valid word.");
@@ -16,12 +20,16 @@ export default function SubmitBlacklist() {
     }
     setError(null);
     setSuccess(null);
+    
+    // Verify user session
     const { data: { session } } = await supabase.auth.getSession();
     if (!session) {
       setError("No active session");
       return;
     }
+    
     try {
+      // Insert blacklist request into database
       const { error } = await supabase
         .from('blacklist_requests')
         .insert([{
@@ -29,12 +37,13 @@ export default function SubmitBlacklist() {
           word: blacklistSuggestion.trim().toLowerCase(),
           status: 'pending',
         }]);
+        
       if (error) {
         setError("Failed to submit word.");
         setSuccess(null);
       } else {
         setSuccess("Word submitted for review!");
-        setBlacklistSuggestion("");
+        setBlacklistSuggestion(""); // Clear input on success
       }
     } catch (err) {
       setError("Submission failed");
@@ -48,6 +57,7 @@ export default function SubmitBlacklist() {
       <div className="flex-1 p-6 transition-all duration-200 w-full">
         <div className="bg-white rounded-xl shadow p-8 w-full h-full">
           <h1 className="text-2xl font-extrabold mb-8 text-blue-800">Suggest Blacklist Word</h1>
+          {/* Input field for blacklist word */}
           <input
             className="border p-3 rounded-lg text-lg mb-4 w-full focus:ring-2 focus:ring-blue-200 focus:border-blue-400"
             type="text"
@@ -61,10 +71,11 @@ export default function SubmitBlacklist() {
           >
             Submit Blacklist Word
           </button>
+          {/* Display error/success messages */}
           {error && <p className="text-red-500 mb-2">{error}</p>}
           {success && <p className="text-green-600 mb-2">{success}</p>}
         </div>
       </div>
     </div>
   );
-} 
+}
