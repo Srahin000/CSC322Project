@@ -118,6 +118,21 @@ export default function SuperDashboard() {
           .update({ tokens: Math.max(0, userData.tokens - 10) })
           .eq("id", complaint.complained_id);
       }
+    } else if (action === "dismiss") {
+      // Get complainant's current tokens
+      const { data: complainantData } = await supabase
+        .from("profiles")
+        .select("tokens")
+        .eq("id", complaint.complainant_id)
+        .single();
+
+      if (complainantData) {
+        // Deduct 10 tokens from complainant
+        await supabase
+          .from("profiles")
+          .update({ tokens: Math.max(0, complainantData.tokens - 10) })
+          .eq("id", complaint.complainant_id);
+      }
     }
 
     setComplaints(prev => prev.filter(c => c.id !== complaint.id));
@@ -280,8 +295,8 @@ export default function SuperDashboard() {
                     <p><strong>Text Title:</strong> {complaint.texts?.title}</p>
                     <p><strong>Text:</strong> <em className="text-blue-700">{complaint.texts?.content?.slice(0, 200)}...</em></p>
                     <div className="flex gap-2 mt-2">
-                      <button className="bg-red-500 text-white px-4 py-2 rounded-lg font-semibold hover:bg-red-600 transition" onClick={() => handleResolveComplaint(complaint, "fine")}>Fine User (−10 tokens)</button>
-                      <button className="bg-gray-600 text-white px-4 py-2 rounded-lg font-semibold hover:bg-gray-700 transition" onClick={() => handleResolveComplaint(complaint, "dismiss")}>Dismiss Complaint</button>
+                      <button className="bg-red-500 text-white px-4 py-2 rounded-lg font-semibold hover:bg-red-600 transition" onClick={() => handleResolveComplaint(complaint, "fine")}>Fine User (−10 for complained)</button>
+                      <button className="bg-gray-600 text-white px-4 py-2 rounded-lg font-semibold hover:bg-gray-700 transition" onClick={() => handleResolveComplaint(complaint, "dismiss")}>Dismiss Complaint (-10 for complainer)</button>
                     </div>
                   </div>
                 ))

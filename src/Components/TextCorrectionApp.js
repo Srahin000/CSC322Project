@@ -44,6 +44,7 @@ export default function TextCorrectionApp() {
   const [selectedWords, setSelectedWords] = useState([]);
   const [rejectionReason, setRejectionReason] = useState("");
   const [showRejectionModal, setShowRejectionModal] = useState(false);
+  const [llmWordCount, setLlmWordCount] = useState(0); // Add state for LLM word count
 
 
 
@@ -83,15 +84,41 @@ export default function TextCorrectionApp() {
 
   const censorBlacklistedWords = (inputText) => {
     let censored = inputText;
+    let totalPenalty = 0;
   
     blacklistWords.forEach(word => {
       const regex = new RegExp(`\\b${word}\\b`, 'gi');
-      const replacement = '*'.repeat(word.length);
-      censored = censored.replace(regex, replacement);
+      const matches = inputText.match(regex);
+      if (matches) {
+        // Calculate penalty based on word length
+        matches.forEach(match => {
+          totalPenalty += match.length; // Each character costs 1 token
+        });
+        const replacement = '*'.repeat(word.length);
+        censored = censored.replace(regex, replacement);
+      }
     });
+
+    // Update tokens in Supabase if there's a penalty
+    if (totalPenalty > 0 && tokens !== null) {
+      const newTokenCount = Math.max(0, tokens - totalPenalty);
+      setTokens(newTokenCount);
+      
+      // Update tokens in Supabase
+      supabase
+        .from('profiles')
+        .update({ tokens: newTokenCount })
+        .eq('id', userId)
+        .then(({ error }) => {
+          if (error) {
+            console.error('Error updating tokens:', error);
+          }
+        });
+    }
   
     return censored;
   };
+
   const handleBlacklistSuggestion = async () => {
     if (!blacklistSuggestion.trim()) {
       alert("Please enter a valid word.");
@@ -356,6 +383,7 @@ export default function TextCorrectionApp() {
       const corrected = response.data.correctedText;
       setCorrectedText(corrected);
       setTokens(response.data.tokens);
+      setLlmWordCount(response.data.wordsProcessed); // Store the word count
       setShowCorrection(true);
       
       // Calculate differences for highlighting
@@ -383,6 +411,21 @@ export default function TextCorrectionApp() {
     setCorrectionMode('self');
     setShowCorrection(false); // Hide the LLM correction output
     setCorrectedText(null); // Clear the corrected text
+
+    // If coming from LLM correction, reimburse half of the tokens
+    if (llmWordCount > 0) {
+      try {
+        const reimbursementAmount = Math.ceil(llmWordCount / 2);
+        const response = await axios.post("http://localhost:5000/purchase-tokens", {
+          username: userId,
+          tokensToAdd: reimbursementAmount
+        });
+        setTokens(response.data.tokens);
+        setLlmWordCount(0); // Reset LLM word count
+      } catch (error) {
+        console.error("Failed to reimburse tokens:", error);
+      }
+    }
   };
 
   const handleSubmitSelfCorrection = async () => {
@@ -397,12 +440,11 @@ export default function TextCorrectionApp() {
     }
 
     try {
-      const response = await axios.post("http://localhost:5000/self-correct", {
+      await axios.post("http://localhost:5000/self-correct", {
         username: userId,
         correctedWords: changedWords,
       });
 
-      setTokens(response.data.tokens);
       setShowSelfCorrection(false);
       setCorrectionMode('none');
       setCorrectionComplete(true);
