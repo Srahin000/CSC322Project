@@ -1,3 +1,6 @@
+// Enables users to submit complaints about collaborators on shared documents
+// Handles complaint submission and tracks them in the database
+
 import SidebarMenu from "../Components/SidebarMenu";
 import { useState, useEffect } from "react";
 import supabase from "../config/supabaseClient";
@@ -13,18 +16,19 @@ export default function SubmitComplaint() {
   const [success, setSuccess] = useState(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
+  // Fetch all texts user has access to (owned or collaborated)
   useEffect(() => {
     const fetchTexts = async () => {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) return;
   
-      // 1. Fetch texts where user is the **owner**
+      // Get texts owned by user
       const { data: ownedTexts, error: ownedError } = await supabase
         .from('texts')
         .select('id, title')
         .eq('user_id', session.user.id);
   
-      // 2. Fetch texts where user is a **collaborator**
+      // Get texts where user is collaborator
       const { data: collabData, error: collabError } = await supabase
         .from('text_collaborators')
         .select('text_id')
@@ -49,8 +53,8 @@ export default function SubmitComplaint() {
     fetchTexts();
   }, []);
   
+  // Fetch collaborators when a text is selected
   useEffect(() => {
-    // When a text is selected, fetch collaborators for that text
     const fetchCollaborators = async () => {
       if (!selectedTextId) {
         setCollaborators([]);
@@ -59,6 +63,7 @@ export default function SubmitComplaint() {
       }
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) return;
+      // Get all collaborators for selected text (excluding current user)
       const { data: collabData } = await supabase
         .from('text_collaborators')
         .select('user_id')
@@ -78,6 +83,7 @@ export default function SubmitComplaint() {
     fetchCollaborators();
   }, [selectedTextId]);
 
+  // Handle complaint submission
   const handleSubmitComplaint = async () => {
     setError(null);
     setSuccess(null);
@@ -86,13 +92,14 @@ export default function SubmitComplaint() {
       setError("Not logged in.");
       return;
     }
+    // Validate form inputs
     if (!complaintText.trim() || !selectedCollaborator || !selectedTextId) {
       setError("Please select a text, a collaborator, and enter a complaint.");
       return;
     }
 
     try {
-      // Insert the complaint
+      // Insert complaint into database
       const { error: complaintError } = await supabase.from("complaints").insert([
         {
           complainant_id: session.user.id,
@@ -105,7 +112,7 @@ export default function SubmitComplaint() {
 
       if (complaintError) throw complaintError;
 
-      // Set complaint to true in the complained user's profile
+      // Mark user's profile as having a complaint
       const { error: profileError } = await supabase
         .from('profiles')
         .update({ complaint: true })
@@ -114,6 +121,7 @@ export default function SubmitComplaint() {
       if (profileError) throw profileError;
 
       setSuccess("Complaint submitted!");
+      // Reset form
       setComplaintText("");
       setSelectedCollaborator("");
       setSelectedTextId("");
@@ -140,7 +148,7 @@ export default function SubmitComplaint() {
               <option key={text.id} value={text.id}>{text.title}</option>
             ))}
           </select>
-          {/* Collaborator selection dropdown */}
+          {/* Collaborator selection dropdown (only shows when text is selected) */}
           {selectedTextId && (
             <select
               className="border p-3 rounded-lg text-lg mb-4 w-full focus:ring-2 focus:ring-blue-200 focus:border-blue-400"
@@ -153,6 +161,7 @@ export default function SubmitComplaint() {
               ))}
             </select>
           )}
+          {/* Complaint text area */}
           <textarea
             className="border p-3 rounded-lg text-lg mb-4 w-full focus:ring-2 focus:ring-blue-200 focus:border-blue-400"
             placeholder="Describe the issue..."
@@ -167,10 +176,11 @@ export default function SubmitComplaint() {
           >
             Submit Complaint
           </button>
+          {/* Display error/success messages */}
           {error && <p className="text-red-500 mb-2">{error}</p>}
           {success && <p className="text-green-600 mb-2">{success}</p>}
         </div>
       </div>
     </div>
   );
-} 
+}

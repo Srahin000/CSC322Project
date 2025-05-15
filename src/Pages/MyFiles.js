@@ -1,3 +1,6 @@
+// Displays all text documents owned by or shared with the current user
+// Provides options to open files in editor or manage collaborators
+
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import supabase from "../config/supabaseClient";
@@ -12,6 +15,7 @@ export default function MyFiles() {
   
   const navigate = useNavigate();
 
+  // Fetch user's files (both owned and shared) on component mount
   useEffect(() => {
     const fetchFiles = async () => {
       const { data: { session } } = await supabase.auth.getSession();
@@ -19,13 +23,13 @@ export default function MyFiles() {
         return;
       }
     
-      // Fetch owned files
+      // Fetch files owned by the current user
       const { data: ownedFiles, error: ownedError } = await supabase
         .from('texts')
         .select('id, title, created_at')
         .eq('user_id', session.user.id);
     
-      // Fetch collaborations
+      // Fetch files where user is a collaborator
       const { data: collaborationEntries, error: collabError } = await supabase
         .from('text_collaborators')
         .select('text_id')
@@ -47,6 +51,7 @@ export default function MyFiles() {
       if (ownedError || collabError) {
         console.error(ownedError || collabError);
       } else {
+        // Combine owned and shared files
         setFiles([...ownedFiles, ...collaboratorFiles]);
       }
     };
@@ -54,10 +59,12 @@ export default function MyFiles() {
     fetchFiles();
   }, []);
 
+  // Navigate to editor with selected file ID
   const handleOpenFile = (id) => {
     navigate(`/editor/${id}`);
   };
 
+  // Open collaborator modal for specific file
   const handleAddCollaborator = (fileId) => {
     setSelectedFileId(fileId);
     setShowCollaboratorModal(true);
@@ -103,6 +110,7 @@ export default function MyFiles() {
               </div>
             ))}
           </div>
+          {/* Modal for managing collaborators */}
           {showCollaboratorModal && (
             <AddCollaborator
               fileId={selectedFileId}

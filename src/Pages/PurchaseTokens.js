@@ -1,3 +1,6 @@
+// Allows users to purchase tokens which can be used for AI-assisted editing features
+// Provides different token packages and updates the user's balance upon purchase
+
 import { useState, useEffect } from "react";
 import supabase from "../config/supabaseClient";
 import axios from "axios";
@@ -9,6 +12,7 @@ export default function PurchaseTokens() {
   const [error, setError] = useState(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
+  // Fetch user's token balance on component mount
   useEffect(() => {
     const fetchUserData = async () => {
       const { data: { session } } = await supabase.auth.getSession();
@@ -17,6 +21,7 @@ export default function PurchaseTokens() {
         return;
       }
       setUserId(session.user.id);
+      // Get token balance from profiles table
       const { data, error } = await supabase
         .from('profiles')
         .select('tokens')
@@ -31,6 +36,7 @@ export default function PurchaseTokens() {
     fetchUserData();
   }, []);
 
+  // Handle token purchase by calling backend API
   const handlePurchaseTokens = async (amount) => {
     try {
       const response = await axios.post("http://localhost:5000/purchase-tokens", {
@@ -54,6 +60,7 @@ export default function PurchaseTokens() {
           <p className="mb-4 text-lg text-blue-900 font-medium">Available Tokens: {tokens !== null ? tokens : "Loading..."}</p>
           {error && <p className="text-red-500 mb-2">{error}</p>}
           <div className="flex flex-wrap gap-4 mt-4">
+            {/* Token purchase buttons */}
             {[10, 50, 100].map((amount) => (
               <button
                 key={amount}
@@ -68,4 +75,4 @@ export default function PurchaseTokens() {
       </div>
     </div>
   );
-} 
+}
