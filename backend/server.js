@@ -103,15 +103,23 @@ async function checkTokens(req, res, next) {
 app.post("/submit", checkUserType, checkTokens, async (req, res) => {
   let { username, text } = req.body;
   let wordCount = text.trim().split(/\s+/).length;
+  let blacklistPenalty = 0;
 
-  // Blacklist filtering
+  // Blacklist filtering and penalty calculation
   for (const word in blacklist) {
     const regex = new RegExp(`\\b${word}\\b`, "gi");
     if (regex.test(text)) {
-      wordCount += text.match(regex).length; // Add penalties for blacklist words
+      const matches = text.match(regex);
+      // Add penalty based on word length
+      matches.forEach(match => {
+        blacklistPenalty += match.length; // Each character in the blacklisted word costs 1 token
+      });
       text = text.replace(regex, blacklist[word]);
     }
   }
+
+  // Add blacklist penalty to word count
+  wordCount += blacklistPenalty;
 
   const { error } = await supabase
     .from('profiles')
@@ -122,7 +130,11 @@ app.post("/submit", checkUserType, checkTokens, async (req, res) => {
     return res.status(500).json({ error: "Failed to update tokens." });
   }
 
-  res.json({ text, tokens: req.userTokens - wordCount });
+  res.json({ 
+    text, 
+    tokens: req.userTokens - wordCount,
+    blacklistPenalty
+  });
 });
 
 // Self-Correction
@@ -139,18 +151,31 @@ app.post("/self-correct", async (req, res) => {
     return res.status(400).json({ error: "User not found." });
   }
 
-  const cost = Math.ceil(correctedWords.length / 2); // Half of corrected words
+  const wordCount = correctedWords.length;
+  const cost = Math.ceil(wordCount / 2); // Half of corrected words
 
   if (userProfile.tokens < cost) {
-    return res.status(400).json({ error: "Not enough tokens for self-correction." });
+    return res.status(400).json({ 
+      error: `Not enough tokens for self-correction. Required: ${cost}, Available: ${userProfile.tokens}`,
+      tokens: userProfile.tokens 
+    });
   }
 
-  await supabase
+  const { error: updateError } = await supabase
     .from('profiles')
     .update({ tokens: userProfile.tokens - cost })
     .eq('id', username);
 
-  res.json({ message: "Self-correction applied", tokens: userProfile.tokens - cost });
+  if (updateError) {
+    return res.status(500).json({ error: "Failed to update tokens." });
+  }
+
+  res.json({ 
+    message: "Self-correction applied", 
+    tokens: userProfile.tokens - cost,
+    wordsCorrected: wordCount,
+    tokensCharged: cost
+  });
 });
 
 // LLM Correction with Groq
@@ -168,9 +193,28 @@ app.post("/llm-correct", async (req, res) => {
     return res.status(400).json({ error: "User not found." });
   }
 
-  const baseCost = 10; // Base cost for LLM correction
-  if (userProfile.tokens < baseCost) {
-    return res.status(400).json({ error: "Not enough tokens for LLM correction.", tokens: userProfile.tokens });
+  // Calculate cost based on word count
+  const wordCount = text.trim().split(/\s+/).length;
+  
+  // If not enough tokens, cut half of current tokens
+  if (userProfile.tokens < wordCount) {
+    const penaltyTokens = Math.floor(userProfile.tokens / 2);
+    
+    // Update tokens in database
+    const { error: updateError } = await supabase
+      .from('profiles')
+      .update({ tokens: penaltyTokens })
+      .eq('id', username);
+
+    if (updateError) {
+      return res.status(500).json({ error: "Failed to update tokens." });
+    }
+
+    return res.status(400).json({ 
+      error: `Not enough tokens for LLM correction. Required: ${wordCount}, Available: ${userProfile.tokens}. Half of your tokens have been deducted as penalty.`,
+      tokens: penaltyTokens,
+      penaltyApplied: true
+    });
   }
 
   try {
@@ -188,10 +232,10 @@ app.post("/llm-correct", async (req, res) => {
 
     // Check if text has no errors (text is identical)
     const hasNoErrors = text.trim() === correctedText.trim();
-    const bonusTokens = hasNoErrors && text.trim().split(/\s+/).length > 10 ? 3 : 0;
+    const bonusTokens = hasNoErrors && wordCount > 10 ? Math.floor(wordCount * 0.1) : 0; // 10% bonus for perfect corrections
 
-    // Deduct base cost and add bonus if applicable
-    const finalTokens = userProfile.tokens - baseCost + bonusTokens;
+    // Deduct word count and add bonus if applicable
+    const finalTokens = userProfile.tokens - wordCount + bonusTokens;
     
     const { error: updateError } = await supabase
       .from('profiles')
@@ -206,7 +250,8 @@ app.post("/llm-correct", async (req, res) => {
       correctedText, 
       tokens: finalTokens,
       bonusApplied: bonusTokens > 0,
-      bonusAmount: bonusTokens
+      bonusAmount: bonusTokens,
+      wordsProcessed: wordCount
     });
   } catch (error) {
     res.status(500).json({ error: "LLM Error", details: error.message });
@@ -564,5 +609,41 @@ app.post("/handle-complaint", async (req, res) => {
 
   res.json({ message: "Complaint handled successfully" });
 });
+
+app.post("/free-llm-correct", async (req, res) => {
+  const { text } = req.body;
+
+  if (!text) {
+    return res.status(400).json({ error: "No text provided" });
+  }
+
+  // Check word count for free users
+  const wordCount = text.trim().split(/\s+/).length;
+  if (wordCount > 20) {
+    return res.status(400).json({ error: "Free users cannot submit more than 20 words." });
+  }
+
+  try {
+    const response = await groq.chat.completions.create({
+      messages: [
+        {
+          role: "user",
+          content: `You are a helpful assistant that corrects the grammar, punctuation, and spelling of the following text. Just return the corrected text, no other text or comments:\n${text}`,
+        },
+      ],
+      model: "llama-3.3-70b-versatile",
+    });
+
+    const correctedText = response.choices[0]?.message?.content.trim() || "";
+    res.json({ correctedText });
+  } catch (error) {
+    console.error('Free LLM Error:', error);
+    res.status(500).json({ 
+      error: "LLM Error", 
+      details: error.message
+    });
+  }
+});
+
 
 app.listen(port, () => console.log(`Server running on port ${port}`));
