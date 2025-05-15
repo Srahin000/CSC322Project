@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import supabase from "../config/supabaseClient";
 
+// Manage collaborators for a file
 export default function AddCollaborator({ fileId, onClose }) {
   const [collaborators, setCollaborators] = useState([]);
   const [newCollaboratorEmail, setNewCollaboratorEmail] = useState("");
@@ -8,10 +9,12 @@ export default function AddCollaborator({ fileId, onClose }) {
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(null);
 
+  // fetch collaborators when fileId changes
   useEffect(() => {
     fetchCollaborators();
   }, [fileId]);
 
+  // Fetch current collaborators from the database
   const fetchCollaborators = async () => {
     try {
       setLoading(true);
@@ -89,6 +92,7 @@ export default function AddCollaborator({ fileId, onClose }) {
     }
   };
 
+  // Remove a collaborator
   const handleRemoveCollaborator = async (collaboratorId) => {
     try {
       const { error } = await supabase

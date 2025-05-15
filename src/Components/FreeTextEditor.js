@@ -1,7 +1,9 @@
+// FreeTextEditor component
+
 import { useState, useEffect } from "react";
 import axios from "axios";
 import DOMPurify from "dompurify"; 
-import { saveAs } from "file-saver"; 
+import { saveAs } from "file-saver";    
 import { diffWords } from "diff";
 
 const COOLDOWN_STORAGE_KEY = "free_editor_cooldown";

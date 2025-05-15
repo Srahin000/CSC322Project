@@ -1,3 +1,6 @@
+// Handles the display and submission of responses to user complaints. 
+// It checks for pending complaints and allows users to respond to them.
+
 import { useState, useEffect } from 'react';
 import supabase from '../config/supabaseClient';
 

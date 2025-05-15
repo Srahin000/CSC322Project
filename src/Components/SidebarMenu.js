@@ -1,3 +1,5 @@
+// For the SidebarMenu
+
 import { FaBars } from "react-icons/fa";
 import { useNavigate } from "react-router-dom";
 import supabase from "../config/supabaseClient";

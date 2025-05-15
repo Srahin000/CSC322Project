@@ -1,6 +1,9 @@
+// Handles user sign-in and role-based navigation
+
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import supabase from '../config/supabaseClient';
+
 
 export default function SignIn({ onSwitchToRegister }) {
   const [email, setEmail] = useState('');
@@ -54,6 +57,7 @@ export default function SignIn({ onSwitchToRegister }) {
     }
   };
 
+  
   return (
     <div className="p-4 max-w-md mx-auto">
       <h2 className="text-xl font-bold mb-4">Sign In</h2>

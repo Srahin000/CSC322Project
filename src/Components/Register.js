@@ -1,3 +1,6 @@
+// Handles user registration
+// and profile creation in the database.
+
 import { useState } from 'react';
 import supabase from '../config/supabaseClient';
 
@@ -16,7 +19,8 @@ export default function Register({ onSwitchToSignIn }) {
         setError(error.message);
         return;
       }
-    
+      
+      // Check if the user was created successfully
       if (data && data.user && data.user.id) {
         const { error: profileError } = await supabase.from('profiles').insert([
           { id: data.user.id, email: email, tokens: 100 } // Start with 100 tokens

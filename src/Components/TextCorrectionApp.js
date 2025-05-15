@@ -81,6 +81,7 @@ export default function TextCorrectionApp() {
   
   // Fetch user session + token balance when app loads
 
+  // For the blacklisted words
   const censorBlacklistedWords = (inputText) => {
     let censored = inputText;
   
